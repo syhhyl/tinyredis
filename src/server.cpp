@@ -18,6 +18,19 @@ namespace {
 constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
 
+bool sendAll(int fd, const std::string& data) {
+  size_t sent = 0;
+  while (sent < data.size()) {
+    ssize_t n = write(fd, data.data() + sent, data.size() - sent);
+    if (n < 0) {
+      std::cerr << "write failed: " << std::strerror(errno) << '\n';
+      return false;
+    }
+    sent += static_cast<size_t>(n);
+  }
+  return true;
+}
+
 void handleClient(int clientFd, Store* store) {
   char buffer[kBufferSize];
   std::string input;
@@ -41,16 +54,14 @@ void handleClient(int clientFd, Store* store) {
         break;
       }
       if (result == ParseResult::Error) {
-        const char response[] = "-ERR invalid resp\r\n";
-        if (write(clientFd, response, sizeof(response) - 1) < 0) {
-          std::cerr << "write failed: " << std::strerror(errno) << '\n';
-        }
+        sendAll(clientFd, "-ERR invalid protocol\r\n");
+        close(clientFd);
         return;
       }
 
       std::string response = executeCommand(command, store);
-      if (write(clientFd, response.data(), response.size()) < 0) {
-        std::cerr << "write failed: " << std::strerror(errno) << '\n';
+      if (!sendAll(clientFd, response)) {
+        close(clientFd);
         return;
       }
     }
