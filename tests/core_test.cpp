@@ -73,6 +73,23 @@ void testExecuteUnknownCommand() {
   std::cout << "PASS testExecuteUnknownCommand\n";
 }
 
+void testInvalidCommandDoesNotModifyExistingValue() {
+  Store store;
+
+  assert(executeCommand({"set", "name", "hyl"}, &store) == "+OK\r\n");
+  assert(executeCommand({"set", "name"}, &store) == "-ERR unknown command\r\n");
+  assert(executeCommand({"get", "name"}, &store) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testInvalidCommandDoesNotModifyExistingValue\n";
+}
+
+void testInvalidSetDoesNotCreateValue() {
+  Store store;
+
+  assert(executeCommand({"set", "name"}, &store) == "-ERR unknown command\r\n");
+  assert(executeCommand({"exists", "name"}, &store) == ":0\r\n");
+  std::cout << "PASS testInvalidSetDoesNotCreateValue\n";
+}
+
 }  // namespace
 
 int main() {
@@ -83,6 +100,8 @@ int main() {
   testExecutePing();
   testExecuteSetGetExistsDel();
   testExecuteUnknownCommand();
+  testInvalidCommandDoesNotModifyExistingValue();
+  testInvalidSetDoesNotCreateValue();
   std::cout << "PASS all core tests\n";
   return 0;
 }
