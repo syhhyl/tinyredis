@@ -1,5 +1,6 @@
 #include "server.h"
 
+#include "command.h"
 #include "resp.h"
 
 #include <arpa/inet.h>
@@ -17,7 +18,7 @@ namespace {
 constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
 
-void handleClient(int clientFd) {
+void handleClient(int clientFd, Store* store) {
   char buffer[kBufferSize];
   std::string input;
 
@@ -47,8 +48,8 @@ void handleClient(int clientFd) {
         return;
       }
 
-      const char response[] = "+OK\r\n";
-      if (write(clientFd, response, sizeof(response) - 1) < 0) {
+      std::string response = executeCommand(command, store);
+      if (write(clientFd, response.data(), response.size()) < 0) {
         std::cerr << "write failed: " << std::strerror(errno) << '\n';
         return;
       }
@@ -95,6 +96,8 @@ int Server::run() {
 
   std::cout << "tinyredis listening on port " << port_ << '\n';
 
+  Store store;
+
   while (true) {
     sockaddr_in clientAddr{};
     socklen_t clientLen = sizeof(clientAddr);
@@ -104,7 +107,7 @@ int Server::run() {
       continue;
     }
 
-    handleClient(clientFd);
+    handleClient(clientFd, &store);
   }
 
   close(serverFd);
