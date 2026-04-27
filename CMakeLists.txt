@@ -11,3 +11,7 @@ add_executable(tinyredis
   src/resp.cpp
   src/server.cpp
 )
+
+add_executable(tinyredis-cli
+  src/cli.cpp
+)
