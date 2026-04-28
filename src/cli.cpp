@@ -44,7 +44,12 @@ bool parseArgs(int argc, char* argv[], CliOptions* options) {
       }
 
       try {
-        options->port = std::stoi(argv[i + 1]);
+        size_t parsed = 0;
+        options->port = std::stoi(argv[i + 1], &parsed);
+        if (parsed != std::string(argv[i + 1]).size()) {
+          std::cerr << "invalid port: " << argv[i + 1] << '\n';
+          return false;
+        }
       } catch (const std::exception&) {
         std::cerr << "invalid port: " << argv[i + 1] << '\n';
         return false;
