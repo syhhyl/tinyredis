@@ -57,7 +57,7 @@ void Server::handleClient(int clientFd) {
         break;
       }
       if (result == ParseResult::Error) {
-        sendAll(clientFd, "-ERR invalid protocol\r\n");
+        sendAll(clientFd, encodeError("invalid protocol"));
         close(clientFd);
         return;
       }
@@ -109,7 +109,6 @@ int Server::run() {
 
   std::cout << "tinyredis-server listening on port " << port_ << '\n';
 
-  // Database db;
 
   while (true) {
     sockaddr_in clientAddr{};
