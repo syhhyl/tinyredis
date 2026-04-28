@@ -12,6 +12,7 @@ add_executable(tinyredis-server
   src/command.cpp
   src/resp.cpp
   src/server.cpp
+  src/tinyredis-server.cpp
   src/database.cpp
 )
 
@@ -37,6 +38,14 @@ add_executable(tinyredis-command-test
   tests/command_test.cpp
 )
 
+add_executable(tinyredis-server-test
+  src/server.cpp
+  src/command.cpp
+  src/database.cpp
+  src/resp.cpp
+  tests/server_test.cpp
+)
+
 add_executable(tinyredis-cli-test
   src/cli.cpp
   tests/cli_test.cpp
@@ -54,6 +63,10 @@ target_include_directories(tinyredis-command-test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+target_include_directories(tinyredis-server-test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 target_include_directories(tinyredis-cli-test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -61,4 +74,5 @@ target_include_directories(tinyredis-cli-test PRIVATE
 add_test(NAME tinyredis-resp-test COMMAND tinyredis-resp-test)
 add_test(NAME tinyredis-database-test COMMAND tinyredis-database-test)
 add_test(NAME tinyredis-command-test COMMAND tinyredis-command-test)
+add_test(NAME tinyredis-server-test COMMAND tinyredis-server-test)
 add_test(NAME tinyredis-cli-test COMMAND tinyredis-cli-test)

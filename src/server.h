@@ -1,6 +1,8 @@
 #pragma once
 #include "database.h"
 
+void handleClientSession(int clientFd, Database& db);
+
 class Server {
   public:
     Server(int port);

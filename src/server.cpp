@@ -34,7 +34,7 @@ bool sendAll(int fd, const std::string& data) {
 
 }  // namespace
 
-void Server::handleClient(int clientFd) {
+void handleClientSession(int clientFd, Database& db) {
   char buffer[kBufferSize];
   std::string input;
 
@@ -62,7 +62,7 @@ void Server::handleClient(int clientFd) {
         return;
       }
 
-      std::string response = executeCommand(command, db_);
+      std::string response = executeCommand(command, db);
       if (!sendAll(clientFd, response)) {
         close(clientFd);
         return;
@@ -73,6 +73,9 @@ void Server::handleClient(int clientFd) {
   close(clientFd);
 }
 
+void Server::handleClient(int clientFd) {
+  handleClientSession(clientFd, db_);
+}
 
 Server::Server(int port) : port_(port) {}
 
@@ -124,9 +127,4 @@ int Server::run() {
 
   close(serverFd);
   return 0;
-}
-
-int main() {
-  Server server(6379);
-  return server.run();
 }
