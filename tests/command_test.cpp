@@ -1,5 +1,4 @@
 #include "command.h"
-#include "resp.h"
 
 #include <cassert>
 #include <iostream>
@@ -7,74 +6,6 @@
 #include <vector>
 
 namespace {
-
-void testParseCompleteCommand() {
-  std::string input = "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n";
-  std::vector<std::string> command;
-
-  assert(parseRespCommand(&input, &command) == ParseResult::Complete);
-  assert((command == std::vector<std::string>{"SET", "name", "hyl"}));
-  assert(input.empty());
-  std::cout << "PASS testParseCompleteCommand\n";
-}
-
-void testParseIncompleteCommand() {
-  std::string input = "*1\r\n$4\r\nPIN";
-  std::vector<std::string> command;
-
-  assert(parseRespCommand(&input, &command) == ParseResult::Incomplete);
-  assert(input == "*1\r\n$4\r\nPIN");
-  assert(command.empty());
-  std::cout << "PASS testParseIncompleteCommand\n";
-}
-
-void testParseInvalidCommand() {
-  std::string input = "PING\r\n";
-  std::vector<std::string> command;
-
-  assert(parseRespCommand(&input, &command) == ParseResult::Error);
-  assert(command.empty());
-  std::cout << "PASS testParseInvalidCommand\n";
-}
-
-void testParseKeepsRemainingInput() {
-  std::string input = "*1\r\n$4\r\nPING\r\n*1\r\n$4\r\nPING\r\n";
-  std::vector<std::string> command;
-
-  assert(parseRespCommand(&input, &command) == ParseResult::Complete);
-  assert((command == std::vector<std::string>{"PING"}));
-  assert(input == "*1\r\n$4\r\nPING\r\n");
-  std::cout << "PASS testParseKeepsRemainingInput\n";
-}
-
-void testEncodeRespValues() {
-  assert(encodeSimpleString("OK") == "+OK\r\n");
-  assert(encodeError("unknown command") == "-ERR unknown command\r\n");
-  assert(encodeInteger(1) == ":1\r\n");
-  assert(encodeBulkString("hyl") == "$3\r\nhyl\r\n");
-  assert(encodeNullBulkString() == "$-1\r\n");
-  std::cout << "PASS testEncodeRespValues\n";
-}
-
-void testDatabaseSetGetExistsDel() {
-  Database db;
-
-  assert(!db.get("name"));
-  assert(!db.exists("name"));
-  assert(!db.del("name"));
-
-  db.set("name", "hyl");
-  assert(db.exists("name"));
-  assert(db.get("name") == "hyl");
-
-  db.set("name", "redis");
-  assert(db.get("name") == "redis");
-
-  assert(db.del("name"));
-  assert(!db.get("name"));
-  assert(!db.exists("name"));
-  std::cout << "PASS testDatabaseSetGetExistsDel\n";
-}
 
 void testExecutePing() {
   Database db;
@@ -153,12 +84,6 @@ void testInvalidSetDoesNotCreateValue() {
 }  // namespace
 
 int main() {
-  testParseCompleteCommand();
-  testParseIncompleteCommand();
-  testParseInvalidCommand();
-  testParseKeepsRemainingInput();
-  testEncodeRespValues();
-  testDatabaseSetGetExistsDel();
   testExecutePing();
   testExecuteEmptyCommand();
   testExecuteCommandNameIsCaseInsensitive();
@@ -167,6 +92,6 @@ int main() {
   testExecuteWrongArgumentCounts();
   testInvalidCommandDoesNotModifyExistingValue();
   testInvalidSetDoesNotCreateValue();
-  std::cout << "PASS all core tests\n";
+  std::cout << "PASS all Command tests\n";
   return 0;
 }
