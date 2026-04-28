@@ -11,60 +11,6 @@
 #include <unistd.h>
 #include <vector>
 
-std::string encodeCommand(const std::vector<std::string>& args) {
-  std::string request = "*" + std::to_string(args.size()) + "\r\n";
-
-  for (const std::string& arg : args) {
-    request += "$" + std::to_string(arg.size()) + "\r\n";
-    request += arg + "\r\n";
-  }
-
-  return request;
-}
-
-std::vector<std::string> splitLine(const std::string& line) {
-  std::istringstream stream(line);
-  std::vector<std::string> args;
-  std::string arg;
-
-  while (stream >> arg) {
-    args.push_back(arg);
-  }
-
-  return args;
-}
-
-bool parseArgs(int argc, char* argv[], CliOptions* options) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "-p") {
-      if (i + 1 >= argc) {
-        std::cerr << "missing port after -p\n";
-        return false;
-      }
-
-      try {
-        size_t parsed = 0;
-        options->port = std::stoi(argv[i + 1], &parsed);
-        if (parsed != std::string(argv[i + 1]).size()) {
-          std::cerr << "invalid port: " << argv[i + 1] << '\n';
-          return false;
-        }
-      } catch (const std::exception&) {
-        std::cerr << "invalid port: " << argv[i + 1] << '\n';
-        return false;
-      }
-
-      ++i;
-      continue;
-    }
-
-    options->commandArgs.push_back(arg);
-  }
-
-  return true;
-}
-
 namespace {
 
 int connectServer(int port) {
@@ -191,8 +137,61 @@ bool runCommand(int fd, const std::vector<std::string>& args) {
 
 }  // namespace
 
-#ifndef TINYREDIS_CLI_TEST
-int main(int argc, char* argv[]) {
+std::string encodeCommand(const std::vector<std::string>& args) {
+  std::string request = "*" + std::to_string(args.size()) + "\r\n";
+
+  for (const std::string& arg : args) {
+    request += "$" + std::to_string(arg.size()) + "\r\n";
+    request += arg + "\r\n";
+  }
+
+  return request;
+}
+
+std::vector<std::string> splitLine(const std::string& line) {
+  std::istringstream stream(line);
+  std::vector<std::string> args;
+  std::string arg;
+
+  while (stream >> arg) {
+    args.push_back(arg);
+  }
+
+  return args;
+}
+
+bool parseArgs(int argc, char* argv[], CliOptions* options) {
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "-p") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing port after -p\n";
+        return false;
+      }
+
+      try {
+        size_t parsed = 0;
+        options->port = std::stoi(argv[i + 1], &parsed);
+        if (parsed != std::string(argv[i + 1]).size()) {
+          std::cerr << "invalid port: " << argv[i + 1] << '\n';
+          return false;
+        }
+      } catch (const std::exception&) {
+        std::cerr << "invalid port: " << argv[i + 1] << '\n';
+        return false;
+      }
+
+      ++i;
+      continue;
+    }
+
+    options->commandArgs.push_back(arg);
+  }
+
+  return true;
+}
+
+int runCli(int argc, char* argv[]) {
   CliOptions options;
   if (!parseArgs(argc, argv, &options)) {
     return 1;
@@ -237,4 +236,3 @@ int main(int argc, char* argv[]) {
   close(clientFd);
   return 0;
 }
-#endif

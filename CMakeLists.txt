@@ -17,6 +17,7 @@ add_executable(tinyredis-server
 
 add_executable(tinyredis-cli
   src/cli.cpp
+  src/tinyredis-cli.cpp
 )
 
 add_executable(tinyredis-resp-test
@@ -39,10 +40,6 @@ add_executable(tinyredis-command-test
 add_executable(tinyredis-cli-test
   src/cli.cpp
   tests/cli_test.cpp
-)
-
-target_compile_definitions(tinyredis-cli-test PRIVATE
-  TINYREDIS_CLI_TEST
 )
 
 target_include_directories(tinyredis-resp-test PRIVATE
