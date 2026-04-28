@@ -1,7 +1,7 @@
 #include "server.h"
 
 #include "command.h"
-#include "Database.h"
+#include "database.h"
 #include "resp.h"
 
 #include <arpa/inet.h>
@@ -124,4 +124,9 @@ int Server::run() {
 
   close(serverFd);
   return 0;
+}
+
+int main() {
+  Server server(6379);
+  return server.run();
 }

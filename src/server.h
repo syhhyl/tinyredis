@@ -1,5 +1,5 @@
 #pragma once
-#include "Database.h"
+#include "database.h"
 
 class Server {
   public:
@@ -7,9 +7,10 @@ class Server {
     ~Server() = default;
 
     int run();
-    void handleClient(int clientFd);
 
   private:
+    void handleClient(int clientFd);
+
     int port_;
     Database db_;
 };

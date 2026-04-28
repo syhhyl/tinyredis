@@ -1,3 +1,5 @@
+#include "cli.h"
+
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -8,16 +10,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
-
-namespace {
-
-constexpr int kPort = 6379;
-constexpr int kBufferSize = 4096;
-
-struct CliOptions {
-  int port = kPort;
-  std::vector<std::string> commandArgs;
-};
 
 std::string encodeCommand(const std::vector<std::string>& args) {
   std::string request = "*" + std::to_string(args.size()) + "\r\n";
@@ -41,6 +33,34 @@ std::vector<std::string> splitLine(const std::string& line) {
 
   return args;
 }
+
+bool parseArgs(int argc, char* argv[], CliOptions* options) {
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "-p") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing port after -p\n";
+        return false;
+      }
+
+      try {
+        options->port = std::stoi(argv[i + 1]);
+      } catch (const std::exception&) {
+        std::cerr << "invalid port: " << argv[i + 1] << '\n';
+        return false;
+      }
+
+      ++i;
+      continue;
+    }
+
+    options->commandArgs.push_back(arg);
+  }
+
+  return true;
+}
+
+namespace {
 
 int connectServer(int port) {
   int clientFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -164,34 +184,9 @@ bool runCommand(int fd, const std::vector<std::string>& args) {
   return sendAll(fd, request) && printResponse(fd);
 }
 
-bool parseArgs(int argc, char* argv[], CliOptions* options) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "-p") {
-      if (i + 1 >= argc) {
-        std::cerr << "missing port after -p\n";
-        return false;
-      }
-
-      try {
-        options->port = std::stoi(argv[i + 1]);
-      } catch (const std::exception&) {
-        std::cerr << "invalid port: " << argv[i + 1] << '\n';
-        return false;
-      }
-
-      ++i;
-      continue;
-    }
-
-    options->commandArgs.push_back(arg);
-  }
-
-  return true;
-}
-
 }  // namespace
 
+#ifndef TINYREDIS_CLI_TEST
 int main(int argc, char* argv[]) {
   CliOptions options;
   if (!parseArgs(argc, argv, &options)) {
@@ -237,3 +232,4 @@ int main(int argc, char* argv[]) {
   close(clientFd);
   return 0;
 }
+#endif

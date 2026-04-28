@@ -9,7 +9,6 @@ enable_testing()
 
 add_executable(tinyredis-server
   src/command.cpp
-  src/main.cpp
   src/resp.cpp
   src/server.cpp
   src/Database.cpp

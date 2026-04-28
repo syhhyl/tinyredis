@@ -1,4 +1,4 @@
-#include "Database.h"
+#include "database.h"
 
 void Database::set(const std::string& key, const std::string& value) {
   map_store_[key] = value;
