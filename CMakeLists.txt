@@ -12,6 +12,7 @@ add_executable(tinyredis-server
   src/main.cpp
   src/resp.cpp
   src/server.cpp
+  src/Database.cpp
 )
 
 add_executable(tinyredis-cli
@@ -20,6 +21,7 @@ add_executable(tinyredis-cli
 
 add_executable(tinyredis-core-test
   src/command.cpp
+  src/Database.cpp
   src/resp.cpp
   tests/core_test.cpp
 )

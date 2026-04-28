@@ -1,6 +1,7 @@
 #include "server.h"
 
 #include "command.h"
+#include "Database.h"
 #include "resp.h"
 
 #include <arpa/inet.h>
@@ -31,7 +32,9 @@ bool sendAll(int fd, const std::string& data) {
   return true;
 }
 
-void handleClient(int clientFd, Store* store) {
+}  // namespace
+
+void Server::handleClient(int clientFd) {
   char buffer[kBufferSize];
   std::string input;
 
@@ -59,7 +62,7 @@ void handleClient(int clientFd, Store* store) {
         return;
       }
 
-      std::string response = executeCommand(command, store);
+      std::string response = executeCommand(command, db_);
       if (!sendAll(clientFd, response)) {
         close(clientFd);
         return;
@@ -70,7 +73,6 @@ void handleClient(int clientFd, Store* store) {
   close(clientFd);
 }
 
-}  // namespace
 
 Server::Server(int port) : port_(port) {}
 
@@ -105,9 +107,9 @@ int Server::run() {
     return 1;
   }
 
-  std::cout << "tinyredis listening on port " << port_ << '\n';
+  std::cout << "tinyredis-server listening on port " << port_ << '\n';
 
-  Store store;
+  // Database db;
 
   while (true) {
     sockaddr_in clientAddr{};
@@ -118,7 +120,7 @@ int Server::run() {
       continue;
     }
 
-    handleClient(clientFd, &store);
+    handleClient(clientFd);
   }
 
   close(serverFd);

@@ -79,3 +79,23 @@ ParseResult parseRespCommand(std::string* input, std::vector<std::string>* comma
   *command = std::move(parsed);
   return ParseResult::Complete;
 }
+
+std::string encodeSimpleString(const std::string& value) {
+  return "+" + value + "\r\n";
+}
+
+std::string encodeError(const std::string& message) {
+  return "-ERR " + message + "\r\n";
+}
+
+std::string encodeInteger(int value) {
+  return ":" + std::to_string(value) + "\r\n";
+}
+
+std::string encodeBulkString(const std::string& value) {
+  return "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n";
+}
+
+std::string encodeNullBulkString() {
+  return "$-1\r\n";
+}

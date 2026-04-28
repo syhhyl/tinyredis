@@ -1,4 +1,5 @@
 #include "command.h"
+#include "resp.h"
 
 namespace {
 
@@ -11,38 +12,34 @@ std::string toUpper(std::string s) {
   return s;
 }
 
-std::string bulkString(const std::string& value) {
-  return "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n";
-}
-
 }  // namespace
 
-std::string executeCommand(const std::vector<std::string>& command, Store* store) {
+std::string executeCommand(const std::vector<std::string>& command, Database &db) {
   if (command.empty()) {
-    return "-ERR empty command\r\n";
+    return encodeError("empty command");
   }
 
   std::string name = toUpper(command[0]);
   if (name == "PING" && command.size() == 1) {
-    return "+PONG\r\n";
+    return encodeSimpleString("PONG");
   }
   if (name == "SET" && command.size() == 3) {
-    (*store)[command[1]] = command[2];
-    return "+OK\r\n";
+    db.set(command[1], command[2]);
+    return encodeSimpleString("OK");
   }
   if (name == "GET" && command.size() == 2) {
-    auto it = store->find(command[1]);
-    if (it == store->end()) {
-      return "$-1\r\n";
+    auto value = db.get(command[1]);
+    if (!value) {
+      return encodeNullBulkString();
     }
-    return bulkString(it->second);
+    return encodeBulkString(*value);
   }
   if (name == "EXISTS" && command.size() == 2) {
-    return ":" + std::to_string(store->count(command[1])) + "\r\n";
+    return encodeInteger(db.exists(command[1]) ? 1 : 0);
   }
   if (name == "DEL" && command.size() == 2) {
-    return ":" + std::to_string(store->erase(command[1])) + "\r\n";
+    return encodeInteger(db.del(command[1]) ? 1 : 0);
   }
 
-  return "-ERR unknown command\r\n";
+  return encodeError("unknown command");
 }

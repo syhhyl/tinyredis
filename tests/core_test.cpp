@@ -48,45 +48,45 @@ void testParseKeepsRemainingInput() {
 }
 
 void testExecutePing() {
-  Store store;
+  Database db;
 
-  assert(executeCommand({"ping"}, &store) == "+PONG\r\n");
+  assert(executeCommand({"ping"}, db) == "+PONG\r\n");
   std::cout << "PASS testExecutePing\n";
 }
 
 void testExecuteSetGetExistsDel() {
-  Store store;
+  Database db;
 
-  assert(executeCommand({"set", "name", "hyl"}, &store) == "+OK\r\n");
-  assert(executeCommand({"get", "name"}, &store) == "$3\r\nhyl\r\n");
-  assert(executeCommand({"exists", "name"}, &store) == ":1\r\n");
-  assert(executeCommand({"del", "name"}, &store) == ":1\r\n");
-  assert(executeCommand({"get", "name"}, &store) == "$-1\r\n");
-  assert(executeCommand({"exists", "name"}, &store) == ":0\r\n");
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  assert(executeCommand({"exists", "name"}, db) == ":1\r\n");
+  assert(executeCommand({"del", "name"}, db) == ":1\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
+  assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
   std::cout << "PASS testExecuteSetGetExistsDel\n";
 }
 
 void testExecuteUnknownCommand() {
-  Store store;
+  Database db;
 
-  assert(executeCommand({"unknown"}, &store) == "-ERR unknown command\r\n");
+  assert(executeCommand({"unknown"}, db) == "-ERR unknown command\r\n");
   std::cout << "PASS testExecuteUnknownCommand\n";
 }
 
 void testInvalidCommandDoesNotModifyExistingValue() {
-  Store store;
+  Database db;
 
-  assert(executeCommand({"set", "name", "hyl"}, &store) == "+OK\r\n");
-  assert(executeCommand({"set", "name"}, &store) == "-ERR unknown command\r\n");
-  assert(executeCommand({"get", "name"}, &store) == "$3\r\nhyl\r\n");
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", "name"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
   std::cout << "PASS testInvalidCommandDoesNotModifyExistingValue\n";
 }
 
 void testInvalidSetDoesNotCreateValue() {
-  Store store;
+  Database db;
 
-  assert(executeCommand({"set", "name"}, &store) == "-ERR unknown command\r\n");
-  assert(executeCommand({"exists", "name"}, &store) == ":0\r\n");
+  assert(executeCommand({"set", "name"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
   std::cout << "PASS testInvalidSetDoesNotCreateValue\n";
 }
 
