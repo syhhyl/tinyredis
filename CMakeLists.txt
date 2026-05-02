@@ -9,10 +9,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(tinyredis-server
   src/command.cpp
   src/resp.cpp
+  src/event_loop.cpp
   src/server.cpp
   src/tinyredis-server.cpp
   src/database.cpp
 )
+
+if(APPLE)
+  target_sources(tinyredis-server PRIVATE src/event_loop_kqueue.cpp)
+else()
+  message(FATAL_ERROR "EventLoop backend is not implemented for this platform")
+endif()
 
 add_executable(tinyredis-cli
   src/cli.cpp
