@@ -1,14 +1,37 @@
 #include "server.h"
 
+#include <arpa/inet.h>
 #include <cassert>
+#include <csignal>
 #include <iostream>
+#include <netinet/in.h>
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
 namespace {
+
+int reservePort() {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  assert(fd >= 0);
+
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+
+  assert(bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+
+  socklen_t len = sizeof(addr);
+  assert(getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0);
+  int port = ntohs(addr.sin_port);
+
+  close(fd);
+  return port;
+}
 
 bool writeAll(int fd, const std::string& data) {
   size_t sent = 0;
@@ -54,77 +77,145 @@ bool readClosed(int fd) {
   return read(fd, &c, 1) == 0;
 }
 
+int connectToServer(int port) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  assert(fd >= 0);
+
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  assert(inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) == 1);
+
+  assert(connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+  return fd;
+}
+
 class ServerHarness {
  public:
-  ServerHarness() {
-    int fds[2];
-    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
-    clientFd_ = fds[0];
+  ServerHarness() : port_(reservePort()) {
+    pid_ = fork();
+    assert(pid_ >= 0);
 
-    thread_ = std::thread([serverFd = fds[1]] {
-      Database db;
-      handleClientSession(serverFd, db);
-    });
+    if (pid_ == 0) {
+      Server server(port_);
+      _exit(server.run());
+    }
+
+    waitUntilReady();
   }
 
   ~ServerHarness() {
-    shutdown(clientFd_, SHUT_RDWR);
-    close(clientFd_);
-    thread_.join();
+    if (pid_ > 0) {
+      kill(pid_, SIGTERM);
+      waitpid(pid_, nullptr, 0);
+    }
   }
 
-  int clientFd() const { return clientFd_; }
+  int connectClient() const { return connectToServer(port_); }
 
  private:
-  int clientFd_ = -1;
-  std::thread thread_;
+  void waitUntilReady() const {
+    for (int i = 0; i < 100; ++i) {
+      int fd = socket(AF_INET, SOCK_STREAM, 0);
+      assert(fd >= 0);
+
+      sockaddr_in addr{};
+      addr.sin_family = AF_INET;
+      addr.sin_port = htons(port_);
+      assert(inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) == 1);
+
+      if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
+        close(fd);
+        return;
+      }
+
+      close(fd);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    assert(false && "server did not start listening");
+  }
+
+  int port_ = 0;
+  pid_t pid_ = -1;
 };
 
 void testServerHandlesPing() {
   ServerHarness harness;
+  int fd = harness.connectClient();
 
-  assert(writeAll(harness.clientFd(), "*1\r\n$4\r\nPING\r\n"));
-  assert(readExact(harness.clientFd(), 7) == "+PONG\r\n");
+  assert(writeAll(fd, "*1\r\n$4\r\nPING\r\n"));
+  assert(readExact(fd, 7) == "+PONG\r\n");
+
+  close(fd);
   std::cout << "PASS testServerHandlesPing\n";
 }
 
 void testServerKeepsDatabaseStateOnConnection() {
   ServerHarness harness;
+  int fd = harness.connectClient();
 
-  assert(writeAll(harness.clientFd(), "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n"));
-  assert(readExact(harness.clientFd(), 5) == "+OK\r\n");
+  assert(writeAll(fd, "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n"));
+  assert(readExact(fd, 5) == "+OK\r\n");
 
-  assert(writeAll(harness.clientFd(), "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"));
-  assert(readExact(harness.clientFd(), 9) == "$3\r\nhyl\r\n");
+  assert(writeAll(fd, "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"));
+  assert(readExact(fd, 9) == "$3\r\nhyl\r\n");
+
+  close(fd);
   std::cout << "PASS testServerKeepsDatabaseStateOnConnection\n";
 }
 
 void testServerHandlesMultipleCommandsInOneRead() {
   ServerHarness harness;
+  int fd = harness.connectClient();
 
-  assert(writeAll(harness.clientFd(), "*1\r\n$4\r\nPING\r\n*1\r\n$4\r\nPING\r\n"));
-  assert(readExact(harness.clientFd(), 14) == "+PONG\r\n+PONG\r\n");
+  assert(writeAll(fd, "*1\r\n$4\r\nPING\r\n*1\r\n$4\r\nPING\r\n"));
+  assert(readExact(fd, 14) == "+PONG\r\n+PONG\r\n");
+
+  close(fd);
   std::cout << "PASS testServerHandlesMultipleCommandsInOneRead\n";
 }
 
 void testServerWaitsForCompleteCommand() {
   ServerHarness harness;
+  int fd = harness.connectClient();
 
-  assert(writeAll(harness.clientFd(), "*1\r\n$4\r\nPIN"));
-  assert(!hasReadableData(harness.clientFd()));
+  assert(writeAll(fd, "*1\r\n$4\r\nPIN"));
+  assert(!hasReadableData(fd));
 
-  assert(writeAll(harness.clientFd(), "G\r\n"));
-  assert(readExact(harness.clientFd(), 7) == "+PONG\r\n");
+  assert(writeAll(fd, "G\r\n"));
+  assert(readExact(fd, 7) == "+PONG\r\n");
+
+  close(fd);
   std::cout << "PASS testServerWaitsForCompleteCommand\n";
 }
 
 void testServerClosesInvalidProtocol() {
   ServerHarness harness;
+  int fd = harness.connectClient();
 
-  assert(writeAll(harness.clientFd(), "PING\r\n"));
-  assert(readExact(harness.clientFd(), 23) == "-ERR invalid protocol\r\n");
-  assert(readClosed(harness.clientFd()));
+  assert(writeAll(fd, "PING\r\n"));
+  assert(readExact(fd, 23) == "-ERR invalid protocol\r\n");
+  assert(readClosed(fd));
+
+  close(fd);
   std::cout << "PASS testServerClosesInvalidProtocol\n";
+}
+
+void testServerSharesDatabaseAcrossConnections() {
+  ServerHarness harness;
+  int first = harness.connectClient();
+  int second = harness.connectClient();
+
+  assert(writeAll(first, "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n"));
+  assert(readExact(first, 5) == "+OK\r\n");
+
+  assert(writeAll(second, "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"));
+  assert(readExact(second, 9) == "$3\r\nhyl\r\n");
+
+  close(first);
+  close(second);
+  std::cout << "PASS testServerSharesDatabaseAcrossConnections\n";
 }
 
 }  // namespace
@@ -135,6 +226,7 @@ int main() {
   testServerHandlesMultipleCommandsInOneRead();
   testServerWaitsForCompleteCommand();
   testServerClosesInvalidProtocol();
+  testServerSharesDatabaseAcrossConnections();
   std::cout << "PASS all Server tests\n";
   return 0;
 }
