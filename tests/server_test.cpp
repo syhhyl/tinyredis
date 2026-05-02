@@ -218,9 +218,68 @@ void testServerSharesDatabaseAcrossConnections() {
   std::cout << "PASS testServerSharesDatabaseAcrossConnections\n";
 }
 
+void testParseServerArgsDefaults() {
+  char arg0[] = "tinyredis-server";
+  char* argv[] = {arg0};
+  ServerOptions options;
+
+  assert(parseServerArgs(1, argv, &options));
+  assert(options.port == kDefaultServerPort);
+  std::cout << "PASS testParseServerArgsDefaults\n";
+}
+
+void testParseServerArgsPort() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--port";
+  char arg2[] = "6380";
+  char* argv[] = {arg0, arg1, arg2};
+  ServerOptions options;
+
+  assert(parseServerArgs(3, argv, &options));
+  assert(options.port == 6380);
+  std::cout << "PASS testParseServerArgsPort\n";
+}
+
+void testParseServerArgsRejectsInvalidPort() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--port";
+  char arg2[] = "abc";
+  char* argv[] = {arg0, arg1, arg2};
+  ServerOptions options;
+
+  assert(!parseServerArgs(3, argv, &options));
+  std::cout << "PASS testParseServerArgsRejectsInvalidPort\n";
+}
+
+void testParseServerArgsRejectsOutOfRangePort() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--port";
+  char arg2[] = "65536";
+  char* argv[] = {arg0, arg1, arg2};
+  ServerOptions options;
+
+  assert(!parseServerArgs(3, argv, &options));
+  std::cout << "PASS testParseServerArgsRejectsOutOfRangePort\n";
+}
+
+void testParseServerArgsRejectsMissingPort() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--port";
+  char* argv[] = {arg0, arg1};
+  ServerOptions options;
+
+  assert(!parseServerArgs(2, argv, &options));
+  std::cout << "PASS testParseServerArgsRejectsMissingPort\n";
+}
+
 }  // namespace
 
 int main() {
+  testParseServerArgsDefaults();
+  testParseServerArgsPort();
+  testParseServerArgsRejectsInvalidPort();
+  testParseServerArgsRejectsOutOfRangePort();
+  testParseServerArgsRejectsMissingPort();
   testServerHandlesPing();
   testServerKeepsDatabaseStateOnConnection();
   testServerHandlesMultipleCommandsInOneRead();

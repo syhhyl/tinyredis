@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <iostream>
 #include <netinet/in.h>
@@ -21,6 +22,7 @@ namespace {
 
 constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
+constexpr int kMaxPort = 65535;
 
 struct Connection {
   int fd = -1;
@@ -135,7 +137,38 @@ void handleClientWrite(EventLoop& loop, std::unordered_map<int, Connection>& con
 
 }  // namespace
 
+bool parseServerArgs(int argc, char* argv[], ServerOptions* options) {
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--port") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing port after --port\n";
+        return false;
+      }
 
+      try {
+        size_t parsed = 0;
+        int port = std::stoi(argv[i + 1], &parsed);
+        if (parsed != std::string(argv[i + 1]).size() || port < 1 || port > kMaxPort) {
+          std::cerr << "invalid port: " << argv[i + 1] << '\n';
+          return false;
+        }
+        options->port = port;
+      } catch (const std::exception&) {
+        std::cerr << "invalid port: " << argv[i + 1] << '\n';
+        return false;
+      }
+
+      ++i;
+      continue;
+    }
+
+    std::cerr << "unknown option: " << arg << '\n';
+    return false;
+  }
+
+  return true;
+}
 
 Server::Server(int port) : port_(port) {}
 
