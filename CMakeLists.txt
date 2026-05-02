@@ -50,9 +50,14 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
     src/server.cpp
     src/command.cpp
     src/database.cpp
+    src/event_loop.cpp
     src/resp.cpp
     tests/server_test.cpp
   )
+
+  if(APPLE)
+    target_sources(tinyredis-server-test PRIVATE src/event_loop_kqueue.cpp)
+  endif()
 
   add_executable(tinyredis-cli-test
     src/cli.cpp

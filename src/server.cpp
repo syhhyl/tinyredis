@@ -2,15 +2,18 @@
 
 #include "command.h"
 #include "database.h"
+#include "event_loop.h"
 #include "resp.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <unordered_map>
 #include <unistd.h>
 #include <vector>
 
@@ -19,77 +22,144 @@ namespace {
 constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
 
-bool sendAll(int fd, const std::string& data) {
-  size_t sent = 0;
-  while (sent < data.size()) {
-    ssize_t n = write(fd, data.data() + sent, data.size() - sent);
-    if (n < 0) {
-      std::cerr << "write failed: " << std::strerror(errno) << '\n';
-      return false;
-    }
-    sent += static_cast<size_t>(n);
+struct Connection {
+  int fd = -1;
+  std::string input;
+  std::string output;
+  bool closeAfterWrite = false;
+};
+
+bool setNonBlocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) {
+    std::cerr << "fcntl F_GETFL failed: " << std::strerror(errno) << '\n';
+    return false;
   }
+
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    std::cerr << "fcntl F_SETFL failed: " << std::strerror(errno) << '\n';
+    return false;
+  }
+
   return true;
+}
+
+
+void closeConnection(EventLoop& loop, std::unordered_map<int, Connection>& connections, int fd) {
+  loop.remove(fd);
+  close(fd);
+  connections.erase(fd);
+}
+
+void processInput(Connection& connection, Database& db) {
+  while (true) {
+    std::vector<std::string> command;
+    ParseResult result = parseRespCommand(&connection.input, &command);
+    if (result == ParseResult::Incomplete) {
+      return;
+    }
+    if (result == ParseResult::Error) {
+      connection.output += encodeError("invalid protocol");
+      connection.closeAfterWrite = true;
+      return;
+    }
+
+    connection.output += executeCommand(command, db);
+  }
+}
+
+void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& connections,
+                      int fd, Database& db) {
+  auto it = connections.find(fd);
+  if (it == connections.end()) {
+    return;
+  }
+
+  char buffer[kBufferSize];
+  bool peerClosed = false;
+  while (true) {
+    ssize_t n = read(fd, buffer, sizeof(buffer));
+    if (n > 0) {
+      it->second.input.append(buffer, static_cast<size_t>(n));
+      continue;
+    }
+    if (n == 0) {
+      peerClosed = true;
+      break;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      break;
+    }
+
+    std::cerr << "read failed: " << std::strerror(errno) << '\n';
+    closeConnection(loop, connections, fd);
+    return;
+  }
+
+  processInput(it->second, db);
+  if (!it->second.output.empty()) {
+    loop.setWrite(fd, true);
+  }
+  if (peerClosed && it->second.output.empty()) {
+    closeConnection(loop, connections, fd);
+  }
+}
+
+void handleClientWrite(EventLoop& loop, std::unordered_map<int, Connection>& connections, int fd) {
+  auto it = connections.find(fd);
+  if (it == connections.end()) {
+    return;
+  }
+
+  std::string& output = it->second.output;
+  while (!output.empty()) {
+    ssize_t n = write(fd, output.data(), output.size());
+    if (n > 0) {
+      output.erase(0, static_cast<size_t>(n));
+      continue;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return;
+    }
+
+    std::cerr << "write failed: " << std::strerror(errno) << '\n';
+    closeConnection(loop, connections, fd);
+    return;
+  }
+
+  loop.setWrite(fd, false);
+  if (it->second.closeAfterWrite) {
+    closeConnection(loop, connections, fd);
+  }
 }
 
 }  // namespace
 
-void handleClientSession(int clientFd, Database& db) {
-  char buffer[kBufferSize];
-  std::string input;
 
-  while (true) {
-    ssize_t n = read(clientFd, buffer, sizeof(buffer));
-    if (n == 0) {
-      break;
-    }
-    if (n < 0) {
-      std::cerr << "read failed: " << std::strerror(errno) << '\n';
-      break;
-    }
-
-    input.append(buffer, n);
-
-    while (true) {
-      std::vector<std::string> command;
-      ParseResult result = parseRespCommand(&input, &command);
-      if (result == ParseResult::Incomplete) {
-        break;
-      }
-      if (result == ParseResult::Error) {
-        sendAll(clientFd, encodeError("invalid protocol"));
-        close(clientFd);
-        return;
-      }
-
-      std::string response = executeCommand(command, db);
-      if (!sendAll(clientFd, response)) {
-        close(clientFd);
-        return;
-      }
-    }
-  }
-
-  close(clientFd);
-}
-
-void Server::handleClient(int clientFd) {
-  handleClientSession(clientFd, db_);
-}
 
 Server::Server(int port) : port_(port) {}
 
+Server::~Server() {
+  closeListenFd();
+}
+
+void Server::closeListenFd() {
+  if (serverFd_ >= 0) {
+    close(serverFd_);
+    serverFd_ = -1;
+  }
+}
+
 int Server::run() {
-  int serverFd = socket(AF_INET, SOCK_STREAM, 0);
-  if (serverFd < 0) {
+  serverFd_ = socket(AF_INET, SOCK_STREAM, 0);
+  if (serverFd_ < 0) {
     std::cerr << "socket failed: " << std::strerror(errno) << '\n';
     return 1;
   }
 
   int reuse = 1;
-  if (setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+  if (setsockopt(serverFd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
     std::cerr << "setsockopt failed: " << std::strerror(errno) << '\n';
-    close(serverFd);
     return 1;
   }
 
@@ -98,33 +168,65 @@ int Server::run() {
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(port_);
 
-  if (bind(serverFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+  if (bind(serverFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
     std::cerr << "bind failed: " << std::strerror(errno) << '\n';
-    close(serverFd);
     return 1;
   }
 
-  if (listen(serverFd, kBacklog) < 0) {
+  if (listen(serverFd_, kBacklog) < 0) {
     std::cerr << "listen failed: " << std::strerror(errno) << '\n';
-    close(serverFd);
     return 1;
   }
+
+  if (!setNonBlocking(serverFd_)) {
+    return 1;
+  }
+
+  EventLoop loop;
+  if (!loop.valid() || !loop.addRead(serverFd_)) {
+    return 1;
+  }
+
+  std::unordered_map<int, Connection> connections;
 
   std::cout << "tinyredis-server listening on port " << port_ << '\n';
 
-
   while (true) {
-    sockaddr_in clientAddr{};
-    socklen_t clientLen = sizeof(clientAddr);
-    int clientFd = accept(serverFd, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
-    if (clientFd < 0) {
-      std::cerr << "accept failed: " << std::strerror(errno) << '\n';
-      continue;
-    }
+    for (const Event& event : loop.wait()) {
+      if (event.fd == serverFd_ && event.readable) {
+        while (true) {
+          sockaddr_in clientAddr{};
+          socklen_t clientLen = sizeof(clientAddr);
+          int clientFd = accept(serverFd_, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
+          if (clientFd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              break;
+            }
+            std::cerr << "accept failed: " << std::strerror(errno) << '\n';
+            break;
+          }
 
-    handleClient(clientFd);
+          if (!setNonBlocking(clientFd) || !loop.addRead(clientFd)) {
+            close(clientFd);
+            continue;
+          }
+
+          connections.emplace(clientFd, Connection{clientFd, "", "", false});
+        }
+        continue;
+      }
+
+      if (event.readable) {
+        handleClientRead(loop, connections, event.fd, db_);
+      }
+      if (event.writable) {
+        handleClientWrite(loop, connections, event.fd);
+      }
+      if (event.closed && connections.find(event.fd) != connections.end()) {
+        closeConnection(loop, connections, event.fd);
+      }
+    }
   }
 
-  close(serverFd);
   return 0;
 }

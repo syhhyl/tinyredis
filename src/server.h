@@ -1,18 +1,17 @@
 #pragma once
 #include "database.h"
 
-void handleClientSession(int clientFd, Database& db);
-
 class Server {
   public:
     Server(int port);
-    ~Server() = default;
+    ~Server();
 
     int run();
 
   private:
-    void handleClient(int clientFd);
+    void closeListenFd();
 
     int port_;
+    int serverFd_ = -1;
     Database db_;
 };
