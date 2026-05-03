@@ -28,8 +28,13 @@ struct Connection {
   int fd = -1;
   std::string input;
   std::string output;
+  size_t outputOffset = 0;
   bool closeAfterWrite = false;
 };
+
+bool hasPendingOutput(const Connection& connection) {
+  return connection.outputOffset < connection.output.size();
+}
 
 bool setNonBlocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -99,11 +104,11 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
   }
 
   processInput(it->second, db);
-  if (!it->second.output.empty()) {
+  if (hasPendingOutput(it->second)) {
     loop.setWrite(fd, true);
   }
   if (peerClosed) {
-    if (it->second.output.empty()) {
+    if (!hasPendingOutput(it->second)) {
       closeConnection(loop, connections, fd);
     } else {
       it->second.closeAfterWrite = true;
@@ -117,15 +122,17 @@ void handleClientWrite(EventLoop& loop, std::unordered_map<int, Connection>& con
     return;
   }
 
-  std::string& output = it->second.output;
-  while (!output.empty()) {
+  Connection& connection = it->second;
+  std::string& output = connection.output;
+  while (connection.outputOffset < output.size()) {
     int flags = 0;
 #ifdef MSG_NOSIGNAL
     flags = MSG_NOSIGNAL;
 #endif
-    ssize_t n = send(fd, output.data(), output.size(), flags);
+    ssize_t n = send(fd, output.data() + connection.outputOffset,
+                     output.size() - connection.outputOffset, flags);
     if (n > 0) {
-      output.erase(0, static_cast<size_t>(n));
+      connection.outputOffset += static_cast<size_t>(n);
       continue;
     }
     if (n < 0) {
@@ -143,8 +150,10 @@ void handleClientWrite(EventLoop& loop, std::unordered_map<int, Connection>& con
     }
   }
 
+  output.clear();
+  connection.outputOffset = 0;
   loop.setWrite(fd, false);
-  if (it->second.closeAfterWrite) {
+  if (connection.closeAfterWrite) {
     closeConnection(loop, connections, fd);
   }
 }
@@ -272,7 +281,7 @@ int Server::run() {
             continue;
           }
 
-          connections.emplace(clientFd, Connection{clientFd, "", "", false});
+          connections.emplace(clientFd, Connection{clientFd, "", "", 0, false});
         }
         continue;
       }
@@ -286,7 +295,7 @@ int Server::run() {
       if (event.closed) {
         auto it = connections.find(event.fd);
         if (it != connections.end()) {
-          if (it->second.output.empty()) {
+          if (!hasPendingOutput(it->second)) {
             closeConnection(loop, connections, event.fd);
           } else {
             it->second.closeAfterWrite = true;
