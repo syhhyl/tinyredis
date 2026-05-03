@@ -22,6 +22,7 @@ namespace {
 
 constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
+constexpr int kMaxReadsPerEvent = 16;
 constexpr int kMaxPort = 65535;
 
 struct Connection {
@@ -84,7 +85,7 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
 
   char buffer[kBufferSize];
   bool peerClosed = false;
-  while (true) {
+  for (int reads = 0; reads < kMaxReadsPerEvent; ++reads) {
     ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
     if (n > 0) {
       it->second.input.append(buffer, static_cast<size_t>(n));
