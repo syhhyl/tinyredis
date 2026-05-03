@@ -1,8 +1,10 @@
 #include "command.h"
 
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -42,6 +44,40 @@ void testExecuteSetGetExistsDel() {
   assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
   assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
   std::cout << "PASS testExecuteSetGetExistsDel\n";
+}
+
+void testExecuteSetWithExpiration() {
+  Database db;
+
+  assert(executeCommand({"set", "name", "hyl", "ex", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
+  assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
+  assert(executeCommand({"del", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteSetWithExpiration\n";
+}
+
+void testExecuteSetWithInvalidExpiration() {
+  Database db;
+
+  assert(executeCommand({"set", "name", "hyl", "ex", "0"}, db) == "-ERR invalid expire time\r\n");
+  assert(executeCommand({"set", "name", "hyl", "ex", "abc"}, db) == "-ERR invalid expire time\r\n");
+  assert(executeCommand({"set", "name", "hyl", "px", "1"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteSetWithInvalidExpiration\n";
+}
+
+void testExecuteSetClearsPreviousExpiration() {
+  Database db;
+
+  assert(executeCommand({"set", "name", "hyl", "ex", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", "name", "redis"}, db) == "+OK\r\n");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  assert(executeCommand({"get", "name"}, db) == "$5\r\nredis\r\n");
+  std::cout << "PASS testExecuteSetClearsPreviousExpiration\n";
 }
 
 void testExecuteUnknownCommand() {
@@ -88,6 +124,9 @@ int main() {
   testExecuteEmptyCommand();
   testExecuteCommandNameIsCaseInsensitive();
   testExecuteSetGetExistsDel();
+  testExecuteSetWithExpiration();
+  testExecuteSetWithInvalidExpiration();
+  testExecuteSetClearsPreviousExpiration();
   testExecuteUnknownCommand();
   testExecuteWrongArgumentCounts();
   testInvalidCommandDoesNotModifyExistingValue();
