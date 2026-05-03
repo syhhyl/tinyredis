@@ -64,6 +64,19 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
     tests/cli_test.cpp
   )
 
+  add_executable(tinyredis-event-loop-test
+    src/event_loop.cpp
+    tests/event_loop_test.cpp
+  )
+
+  if(APPLE)
+    target_sources(tinyredis-event-loop-test PRIVATE src/event_loop_kqueue.cpp)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(tinyredis-event-loop-test PRIVATE src/event_loop_epoll.cpp)
+  else()
+    message(FATAL_ERROR "EventLoop backend is not implemented for this platform")
+  endif()
+
   target_include_directories(tinyredis-resp-test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
@@ -84,9 +97,14 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
 
+  target_include_directories(tinyredis-event-loop-test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+
   add_test(NAME tinyredis-resp-test COMMAND tinyredis-resp-test)
   add_test(NAME tinyredis-database-test COMMAND tinyredis-database-test)
   add_test(NAME tinyredis-command-test COMMAND tinyredis-command-test)
   add_test(NAME tinyredis-server-test COMMAND tinyredis-server-test)
   add_test(NAME tinyredis-cli-test COMMAND tinyredis-cli-test)
+  add_test(NAME tinyredis-event-loop-test COMMAND tinyredis-event-loop-test)
 endif()
