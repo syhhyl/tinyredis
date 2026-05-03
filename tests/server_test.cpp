@@ -1,5 +1,7 @@
 #include "server.h"
 
+#include "resp.h"
+
 #include <arpa/inet.h>
 #include <cassert>
 #include <csignal>
@@ -202,6 +204,18 @@ void testServerClosesInvalidProtocol() {
   std::cout << "PASS testServerClosesInvalidProtocol\n";
 }
 
+void testServerClosesTooLargeRequest() {
+  ServerHarness harness;
+  int fd = harness.connectClient();
+
+  assert(writeAll(fd, "*" + std::to_string(kMaxRespArrayLength + 1) + "\r\n"));
+  assert(readExact(fd, 24) == "-ERR request too large\r\n");
+  assert(readClosed(fd));
+
+  close(fd);
+  std::cout << "PASS testServerClosesTooLargeRequest\n";
+}
+
 void testServerRespondsBeforeClosingAfterPeerHalfClose() {
   ServerHarness harness;
   int fd = harness.connectClient();
@@ -298,6 +312,7 @@ int main() {
   testServerHandlesMultipleCommandsInOneRead();
   testServerWaitsForCompleteCommand();
   testServerClosesInvalidProtocol();
+  testServerClosesTooLargeRequest();
   testServerRespondsBeforeClosingAfterPeerHalfClose();
   testServerSharesDatabaseAcrossConnections();
   std::cout << "PASS all Server tests\n";

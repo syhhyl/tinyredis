@@ -2,6 +2,10 @@
 
 namespace {
 
+bool isRequestTooLarge(size_t bytes) {
+  return bytes > kMaxRespRequestBytes;
+}
+
 bool readLine(const std::string& input, size_t* pos, std::string* line) {
   size_t end = input.find("\r\n", *pos);
   if (end == std::string::npos) {
@@ -13,21 +17,25 @@ bool readLine(const std::string& input, size_t* pos, std::string* line) {
   return true;
 }
 
-bool parseInt(const std::string& s, int* value) {
+ParseResult parseLength(const std::string& s, size_t maxValue, size_t* value) {
   if (s.empty()) {
-    return false;
+    return ParseResult::Error;
   }
 
-  int result = 0;
+  size_t result = 0;
   for (char c : s) {
     if (c < '0' || c > '9') {
-      return false;
+      return ParseResult::Error;
+    }
+    size_t digit = static_cast<size_t>(c - '0');
+    if (result > (maxValue - digit) / 10) {
+      return ParseResult::TooLarge;
     }
     result = result * 10 + (c - '0');
   }
 
   *value = result;
-  return true;
+  return ParseResult::Complete;
 }
 
 }  // namespace
@@ -37,34 +45,51 @@ ParseResult parseRespCommand(std::string* input, std::vector<std::string>* comma
   std::string line;
 
   if (!readLine(*input, &pos, &line)) {
+    if (isRequestTooLarge(input->size())) {
+      return ParseResult::TooLarge;
+    }
     return ParseResult::Incomplete;
+  }
+  if (isRequestTooLarge(pos)) {
+    return ParseResult::TooLarge;
   }
   if (line.empty() || line[0] != '*') {
     return ParseResult::Error;
   }
 
-  int arrayLen = 0;
-  if (!parseInt(line.substr(1), &arrayLen)) {
-    return ParseResult::Error;
+  size_t arrayLen = 0;
+  ParseResult lengthResult = parseLength(line.substr(1), kMaxRespArrayLength, &arrayLen);
+  if (lengthResult != ParseResult::Complete) {
+    return lengthResult;
   }
 
   std::vector<std::string> parsed;
   parsed.reserve(arrayLen);
 
-  for (int i = 0; i < arrayLen; ++i) {
+  for (size_t i = 0; i < arrayLen; ++i) {
     if (!readLine(*input, &pos, &line)) {
+      if (isRequestTooLarge(input->size())) {
+        return ParseResult::TooLarge;
+      }
       return ParseResult::Incomplete;
+    }
+    if (isRequestTooLarge(pos)) {
+      return ParseResult::TooLarge;
     }
     if (line.empty() || line[0] != '$') {
       return ParseResult::Error;
     }
 
-    int bulkLen = 0;
-    if (!parseInt(line.substr(1), &bulkLen)) {
-      return ParseResult::Error;
+    size_t bulkLen = 0;
+    lengthResult = parseLength(line.substr(1), kMaxRespBulkLength, &bulkLen);
+    if (lengthResult != ParseResult::Complete) {
+      return lengthResult;
+    }
+    if (bulkLen > kMaxRespRequestBytes || isRequestTooLarge(pos + bulkLen + 2)) {
+      return ParseResult::TooLarge;
     }
 
-    if (input->size() < pos + static_cast<size_t>(bulkLen) + 2) {
+    if (input->size() < pos + bulkLen + 2) {
       return ParseResult::Incomplete;
     }
     if ((*input)[pos + bulkLen] != '\r' || (*input)[pos + bulkLen + 1] != '\n') {

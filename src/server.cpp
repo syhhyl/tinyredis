@@ -66,6 +66,11 @@ void processInput(Connection& connection, Database& db) {
     if (result == ParseResult::Incomplete) {
       return;
     }
+    if (result == ParseResult::TooLarge) {
+      connection.output += encodeError("request too large");
+      connection.closeAfterWrite = true;
+      return;
+    }
     if (result == ParseResult::Error) {
       connection.output += encodeError("invalid protocol");
       connection.closeAfterWrite = true;
