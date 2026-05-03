@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr size_t kMaxCommandKeyLength = 1024;
+constexpr size_t kMaxCommandValueLength = 1024 * 1024;
+
 std::string toUpper(std::string s) {
   for (char& c : s) {
     if (c >= 'a' && c <= 'z') {
@@ -32,6 +35,14 @@ std::optional<long long> parsePositiveInteger(const std::string& s) {
   return value;
 }
 
+bool isKeyTooLarge(const std::string& key) {
+  return key.size() > kMaxCommandKeyLength;
+}
+
+bool isValueTooLarge(const std::string& value) {
+  return value.size() > kMaxCommandValueLength;
+}
+
 }  // namespace
 
 std::string executeCommand(const std::vector<std::string>& command, Database &db) {
@@ -45,11 +56,17 @@ std::string executeCommand(const std::vector<std::string>& command, Database &db
   }
   if (name == "SET") {
     if (command.size() == 3) {
+      if (isKeyTooLarge(command[1]) || isValueTooLarge(command[2])) {
+        return encodeError("argument too large");
+      }
       db.set(command[1], command[2]);
       return encodeSimpleString("OK");
     }
 
     if (command.size() == 5 && toUpper(command[3]) == "EX") {
+      if (isKeyTooLarge(command[1]) || isValueTooLarge(command[2])) {
+        return encodeError("argument too large");
+      }
       auto seconds = parsePositiveInteger(command[4]);
       if (!seconds || *seconds > std::numeric_limits<long long>::max() / 1000) {
         return encodeError("invalid expire time");
@@ -60,6 +77,9 @@ std::string executeCommand(const std::vector<std::string>& command, Database &db
     }
   }
   if (name == "GET" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
     auto value = db.get(command[1]);
     if (!value) {
       return encodeNullBulkString();
@@ -67,9 +87,15 @@ std::string executeCommand(const std::vector<std::string>& command, Database &db
     return encodeBulkString(*value);
   }
   if (name == "EXISTS" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
     return encodeInteger(db.exists(command[1]) ? 1 : 0);
   }
   if (name == "DEL" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
     return encodeInteger(db.del(command[1]) ? 1 : 0);
   }
 

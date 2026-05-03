@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr size_t kMaxCommandKeyLength = 1024;
+constexpr size_t kMaxCommandValueLength = 1024 * 1024;
+
 void testExecutePing() {
   Database db;
 
@@ -117,6 +120,63 @@ void testInvalidSetDoesNotCreateValue() {
   std::cout << "PASS testInvalidSetDoesNotCreateValue\n";
 }
 
+void testSetRejectsTooLargeKeyWithoutModifyingDatabase() {
+  Database db;
+  std::string key(kMaxCommandKeyLength + 1, 'k');
+
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", key, "value"}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  assert(executeCommand({"exists", key}, db) == "-ERR argument too large\r\n");
+  std::cout << "PASS testSetRejectsTooLargeKeyWithoutModifyingDatabase\n";
+}
+
+void testSetRejectsTooLargeValueWithoutModifyingDatabase() {
+  Database db;
+  std::string value(kMaxCommandValueLength + 1, 'v');
+
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", "name", value}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testSetRejectsTooLargeValueWithoutModifyingDatabase\n";
+}
+
+void testSetWithExpirationRejectsTooLargeArgumentsWithoutModifyingDatabase() {
+  Database db;
+  std::string key(kMaxCommandKeyLength + 1, 'k');
+  std::string value(kMaxCommandValueLength + 1, 'v');
+
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", key, "value", "ex", "1"}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"set", "name", value, "ex", "1"}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testSetWithExpirationRejectsTooLargeArgumentsWithoutModifyingDatabase\n";
+}
+
+void testKeyCommandsRejectTooLargeKey() {
+  Database db;
+  std::string key(kMaxCommandKeyLength + 1, 'k');
+
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"get", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"exists", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"del", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testKeyCommandsRejectTooLargeKey\n";
+}
+
+void testAllowsMaxKeyAndValueLength() {
+  Database db;
+  std::string key(kMaxCommandKeyLength, 'k');
+  std::string value(kMaxCommandValueLength, 'v');
+
+  assert(executeCommand({"set", key, value}, db) == "+OK\r\n");
+  assert(executeCommand({"exists", key}, db) == ":1\r\n");
+  assert(executeCommand({"get", key}, db) == "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n");
+  assert(executeCommand({"del", key}, db) == ":1\r\n");
+  std::cout << "PASS testAllowsMaxKeyAndValueLength\n";
+}
+
 }  // namespace
 
 int main() {
@@ -131,6 +191,11 @@ int main() {
   testExecuteWrongArgumentCounts();
   testInvalidCommandDoesNotModifyExistingValue();
   testInvalidSetDoesNotCreateValue();
+  testSetRejectsTooLargeKeyWithoutModifyingDatabase();
+  testSetRejectsTooLargeValueWithoutModifyingDatabase();
+  testSetWithExpirationRejectsTooLargeArgumentsWithoutModifyingDatabase();
+  testKeyCommandsRejectTooLargeKey();
+  testAllowsMaxKeyAndValueLength();
   std::cout << "PASS all Command tests\n";
   return 0;
 }
