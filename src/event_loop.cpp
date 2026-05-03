@@ -6,11 +6,15 @@
 
 #if defined(__APPLE__)
 std::unique_ptr<EventLoopBackend> createKqueueEventLoopBackend();
+#elif defined(__linux__)
+std::unique_ptr<EventLoopBackend> createEpollEventLoopBackend();
 #endif
 
 EventLoop::EventLoop()
 #if defined(__APPLE__)
     : backend_(createKqueueEventLoopBackend())
+#elif defined(__linux__)
+    : backend_(createEpollEventLoopBackend())
 #else
     : backend_(nullptr)
 #endif

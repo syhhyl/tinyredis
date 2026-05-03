@@ -2,11 +2,16 @@
 
 #include "event_loop.h"
 
+#include <unistd.h>
 #include <vector>
 
 class EventLoopBackend {
  public:
-  virtual ~EventLoopBackend() = default;
+  virtual ~EventLoopBackend() {
+    if (backendFd_ >= 0) {
+      close(backendFd_);
+    }
+  }
 
   virtual bool valid() const { return backendFd_ >= 0; }
   virtual bool addRead(int fd) = 0;

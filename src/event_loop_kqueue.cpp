@@ -37,12 +37,6 @@ class KqueueEventLoopBackend : public EventLoopBackend {
     }
   }
 
-  ~KqueueEventLoopBackend() override {
-    if (backendFd_ >= 0) {
-      close(backendFd_);
-    }
-  }
-
   bool addRead(int fd) override {
     return valid() && applyEventChange(backendFd_, fd, EVFILT_READ, EV_ADD | EV_ENABLE);
   }

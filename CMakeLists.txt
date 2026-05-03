@@ -17,6 +17,8 @@ add_executable(tinyredis-server
 
 if(APPLE)
   target_sources(tinyredis-server PRIVATE src/event_loop_kqueue.cpp)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(tinyredis-server PRIVATE src/event_loop_epoll.cpp)
 else()
   message(FATAL_ERROR "EventLoop backend is not implemented for this platform")
 endif()
@@ -57,6 +59,10 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
 
   if(APPLE)
     target_sources(tinyredis-server-test PRIVATE src/event_loop_kqueue.cpp)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(tinyredis-server-test PRIVATE src/event_loop_epoll.cpp)
+  else()
+    message(FATAL_ERROR "EventLoop backend is not implemented for this platform")
   endif()
 
   add_executable(tinyredis-cli-test
