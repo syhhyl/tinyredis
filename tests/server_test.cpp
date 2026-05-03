@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <cassert>
+#include <cerrno>
 #include <csignal>
 #include <iostream>
 #include <netinet/in.h>
@@ -13,8 +14,11 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace {
+
+constexpr size_t kMaxServerConnections = 128;
 
 int reservePort() {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -77,6 +81,16 @@ bool readClosed(int fd) {
 
   char c = 0;
   return read(fd, &c, 1) == 0;
+}
+
+bool readClosedOrReset(int fd) {
+  pollfd pfd{fd, POLLIN, 0};
+  int ready = poll(&pfd, 1, 1000);
+  assert(ready == 1);
+
+  char c = 0;
+  ssize_t n = read(fd, &c, 1);
+  return n == 0 || (n < 0 && errno == ECONNRESET);
 }
 
 int connectToServer(int port) {
@@ -275,6 +289,37 @@ void testServerSharesDatabaseAcrossConnections() {
   std::cout << "PASS testServerSharesDatabaseAcrossConnections\n";
 }
 
+void testServerRejectsConnectionsOverLimit() {
+  ServerHarness harness;
+  std::vector<int> clients;
+  clients.reserve(kMaxServerConnections);
+
+  for (size_t i = 0; i < kMaxServerConnections; ++i) {
+    clients.push_back(harness.connectClient());
+  }
+
+  int extra = harness.connectClient();
+  assert(readClosedOrReset(extra));
+  close(extra);
+
+  assert(writeAll(clients[0], "*1\r\n$4\r\nPING\r\n"));
+  assert(readExact(clients[0], 7) == "+PONG\r\n");
+
+  close(clients.back());
+  clients.pop_back();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  int replacement = harness.connectClient();
+  assert(writeAll(replacement, "*1\r\n$4\r\nPING\r\n"));
+  assert(readExact(replacement, 7) == "+PONG\r\n");
+  close(replacement);
+
+  for (int fd : clients) {
+    close(fd);
+  }
+  std::cout << "PASS testServerRejectsConnectionsOverLimit\n";
+}
+
 void testParseServerArgsDefaults() {
   char arg0[] = "tinyredis-server";
   char* argv[] = {arg0};
@@ -347,6 +392,7 @@ int main() {
   testServerClosesTooLargeOutputBuffer();
   testServerRespondsBeforeClosingAfterPeerHalfClose();
   testServerSharesDatabaseAcrossConnections();
+  testServerRejectsConnectionsOverLimit();
   std::cout << "PASS all Server tests\n";
   return 0;
 }
