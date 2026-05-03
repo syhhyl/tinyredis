@@ -102,8 +102,12 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
   if (!it->second.output.empty()) {
     loop.setWrite(fd, true);
   }
-  if (peerClosed && it->second.output.empty()) {
-    closeConnection(loop, connections, fd);
+  if (peerClosed) {
+    if (it->second.output.empty()) {
+      closeConnection(loop, connections, fd);
+    } else {
+      it->second.closeAfterWrite = true;
+    }
   }
 }
 
@@ -279,8 +283,15 @@ int Server::run() {
       if (event.writable) {
         handleClientWrite(loop, connections, event.fd);
       }
-      if (event.closed && connections.find(event.fd) != connections.end()) {
-        closeConnection(loop, connections, event.fd);
+      if (event.closed) {
+        auto it = connections.find(event.fd);
+        if (it != connections.end()) {
+          if (it->second.output.empty()) {
+            closeConnection(loop, connections, event.fd);
+          } else {
+            it->second.closeAfterWrite = true;
+          }
+        }
       }
     }
   }

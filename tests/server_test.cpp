@@ -202,6 +202,19 @@ void testServerClosesInvalidProtocol() {
   std::cout << "PASS testServerClosesInvalidProtocol\n";
 }
 
+void testServerRespondsBeforeClosingAfterPeerHalfClose() {
+  ServerHarness harness;
+  int fd = harness.connectClient();
+
+  assert(writeAll(fd, "*1\r\n$4\r\nPING\r\n"));
+  assert(shutdown(fd, SHUT_WR) == 0);
+  assert(readExact(fd, 7) == "+PONG\r\n");
+  assert(readClosed(fd));
+
+  close(fd);
+  std::cout << "PASS testServerRespondsBeforeClosingAfterPeerHalfClose\n";
+}
+
 void testServerSharesDatabaseAcrossConnections() {
   ServerHarness harness;
   int first = harness.connectClient();
@@ -285,6 +298,7 @@ int main() {
   testServerHandlesMultipleCommandsInOneRead();
   testServerWaitsForCompleteCommand();
   testServerClosesInvalidProtocol();
+  testServerRespondsBeforeClosingAfterPeerHalfClose();
   testServerSharesDatabaseAcrossConnections();
   std::cout << "PASS all Server tests\n";
   return 0;
