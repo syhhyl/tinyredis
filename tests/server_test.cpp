@@ -216,6 +216,36 @@ void testServerClosesTooLargeRequest() {
   std::cout << "PASS testServerClosesTooLargeRequest\n";
 }
 
+void testServerClosesTooLargeInputBuffer() {
+  ServerHarness harness;
+  int fd = harness.connectClient();
+
+  assert(writeAll(fd, std::string(kMaxRespRequestBytes + 1, 'x')));
+  assert(readExact(fd, 24) == "-ERR request too large\r\n");
+  assert(readClosed(fd));
+
+  close(fd);
+  std::cout << "PASS testServerClosesTooLargeInputBuffer\n";
+}
+
+void testServerClosesTooLargeOutputBuffer() {
+  ServerHarness harness;
+  int fd = harness.connectClient();
+  std::string value(kMaxRespBulkLength, 'v');
+  std::string setRequest = "*3\r\n$3\r\nSET\r\n$4\r\nblob\r\n$" +
+                           std::to_string(value.size()) + "\r\n" + value + "\r\n";
+
+  assert(writeAll(fd, setRequest));
+  assert(readExact(fd, 5) == "+OK\r\n");
+
+  std::string getRequest = "*2\r\n$3\r\nGET\r\n$4\r\nblob\r\n";
+  assert(writeAll(fd, getRequest + getRequest + getRequest + getRequest));
+  assert(readClosed(fd));
+
+  close(fd);
+  std::cout << "PASS testServerClosesTooLargeOutputBuffer\n";
+}
+
 void testServerRespondsBeforeClosingAfterPeerHalfClose() {
   ServerHarness harness;
   int fd = harness.connectClient();
@@ -313,6 +343,8 @@ int main() {
   testServerWaitsForCompleteCommand();
   testServerClosesInvalidProtocol();
   testServerClosesTooLargeRequest();
+  testServerClosesTooLargeInputBuffer();
+  testServerClosesTooLargeOutputBuffer();
   testServerRespondsBeforeClosingAfterPeerHalfClose();
   testServerSharesDatabaseAcrossConnections();
   std::cout << "PASS all Server tests\n";
