@@ -80,7 +80,7 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
   char buffer[kBufferSize];
   bool peerClosed = false;
   while (true) {
-    ssize_t n = read(fd, buffer, sizeof(buffer));
+    ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
     if (n > 0) {
       it->second.input.append(buffer, static_cast<size_t>(n));
       continue;
@@ -115,18 +115,28 @@ void handleClientWrite(EventLoop& loop, std::unordered_map<int, Connection>& con
 
   std::string& output = it->second.output;
   while (!output.empty()) {
-    ssize_t n = write(fd, output.data(), output.size());
+    int flags = 0;
+#ifdef MSG_NOSIGNAL
+    flags = MSG_NOSIGNAL;
+#endif
+    ssize_t n = send(fd, output.data(), output.size(), flags);
     if (n > 0) {
       output.erase(0, static_cast<size_t>(n));
       continue;
     }
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+    if (n < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return;
+      }
+      if (errno == EPIPE || errno == ECONNRESET) {
+        closeConnection(loop, connections, fd);
+        return;
+      }
+
+      std::cerr << "write failed: " << std::strerror(errno) << '\n';
+      closeConnection(loop, connections, fd);
       return;
     }
-
-    std::cerr << "write failed: " << std::strerror(errno) << '\n';
-    closeConnection(loop, connections, fd);
-    return;
   }
 
   loop.setWrite(fd, false);
@@ -239,7 +249,21 @@ int Server::run() {
             break;
           }
 
-          if (!setNonBlocking(clientFd) || !loop.addRead(clientFd)) {
+          if (!setNonBlocking(clientFd)) {
+            close(clientFd);
+            continue;
+          }
+
+#ifdef SO_NOSIGPIPE // macos bsd
+          int noSigpipe = 1;
+          if (setsockopt(clientFd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, sizeof(noSigpipe)) < 0) {
+            std::cerr << "setsockopt SO_NOSIGPIPE failed: " << std::strerror(errno) << '\n';
+            close(clientFd);
+            continue;
+          }
+#endif
+
+          if (!loop.addRead(clientFd)) {
             close(clientFd);
             continue;
           }
