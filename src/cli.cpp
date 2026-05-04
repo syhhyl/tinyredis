@@ -160,7 +160,7 @@ std::vector<std::string> splitLine(const std::string& line) {
   return args;
 }
 
-bool parseArgs(int argc, char* argv[], CliOptions* options) {
+bool parseArgs(int argc, char* argv[], CliOptions &options) {
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "-p") {
@@ -171,7 +171,7 @@ bool parseArgs(int argc, char* argv[], CliOptions* options) {
 
       try {
         size_t parsed = 0;
-        options->port = std::stoi(argv[i + 1], &parsed);
+        options.port = std::stoi(argv[i + 1], &parsed);
         if (parsed != std::string(argv[i + 1]).size()) {
           std::cerr << "invalid port: " << argv[i + 1] << '\n';
           return false;
@@ -185,7 +185,7 @@ bool parseArgs(int argc, char* argv[], CliOptions* options) {
       continue;
     }
 
-    options->commandArgs.push_back(arg);
+    options.commandArgs.push_back(arg);
   }
 
   return true;
@@ -193,7 +193,7 @@ bool parseArgs(int argc, char* argv[], CliOptions* options) {
 
 int runCli(int argc, char* argv[]) {
   CliOptions options;
-  if (!parseArgs(argc, argv, &options)) {
+  if (!parseArgs(argc, argv, options)) {
     return 1;
   }
 

@@ -27,7 +27,7 @@ void testParseArgsDefaults() {
   char* argv[] = {arg0, arg1, arg2};
   CliOptions options;
 
-  assert(parseArgs(3, argv, &options));
+  assert(parseArgs(3, argv, options));
   assert(options.port == kDefaultCliPort);
   assert((options.commandArgs == std::vector<std::string>{"GET", "name"}));
   std::cout << "PASS testParseArgsDefaults\n";
@@ -41,7 +41,7 @@ void testParseArgsPort() {
   char* argv[] = {arg0, arg1, arg2, arg3};
   CliOptions options;
 
-  assert(parseArgs(4, argv, &options));
+  assert(parseArgs(4, argv, options));
   assert(options.port == 6380);
   assert((options.commandArgs == std::vector<std::string>{"PING"}));
   std::cout << "PASS testParseArgsPort\n";
@@ -54,7 +54,7 @@ void testParseArgsRejectsInvalidPort() {
   char* argv[] = {arg0, arg1, arg2};
   CliOptions options;
 
-  assert(!parseArgs(3, argv, &options));
+  assert(!parseArgs(3, argv, options));
   std::cout << "PASS testParseArgsRejectsInvalidPort\n";
 }
 
@@ -65,7 +65,7 @@ void testParseArgsRejectsPartiallyParsedPort() {
   char* argv[] = {arg0, arg1, arg2};
   CliOptions options;
 
-  assert(!parseArgs(3, argv, &options));
+  assert(!parseArgs(3, argv, options));
   std::cout << "PASS testParseArgsRejectsPartiallyParsedPort\n";
 }
 
@@ -75,7 +75,7 @@ void testParseArgsRejectsMissingPort() {
   char* argv[] = {arg0, arg1};
   CliOptions options;
 
-  assert(!parseArgs(2, argv, &options));
+  assert(!parseArgs(2, argv, options));
   std::cout << "PASS testParseArgsRejectsMissingPort\n";
 }
 
