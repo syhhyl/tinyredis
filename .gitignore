@@ -1,3 +1,4 @@
 build/
 .cache
 AGENTS.md
+benchmark-report.txt
