@@ -1,10 +1,12 @@
 #pragma once
 #include "database.h"
 
+#include <cstddef>
 #include <string>
 
 constexpr int kDefaultServerPort = 6379;
 constexpr const char* kDefaultServerDumpFile = "dump.rdb";
+constexpr size_t kMaxServerConnections = 128;
 
 struct ServerOptions {
   int port = kDefaultServerPort;

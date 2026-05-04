@@ -19,8 +19,6 @@
 
 namespace {
 
-constexpr size_t kMaxServerConnections = 128;
-
 class TempPath {
  public:
   TempPath() {

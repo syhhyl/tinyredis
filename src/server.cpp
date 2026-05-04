@@ -25,7 +25,6 @@ constexpr int kBacklog = 128;
 constexpr int kBufferSize = 4096;
 constexpr int kMaxReadsPerEvent = 16;
 constexpr int kMaxPort = 65535;
-constexpr size_t kMaxConnections = 128;
 constexpr size_t kMaxOutputBufferBytes = 4 * 1024 * 1024;
 
 struct Connection {
@@ -317,7 +316,7 @@ int Server::run() {
             break;
           }
 
-          if (connections.size() >= kMaxConnections) {
+          if (connections.size() >= kMaxServerConnections) {
             close(clientFd);
             continue;
           }
