@@ -6,6 +6,6 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  Server server(options.port);
+  Server server(options.port, options.dump_file);
   return server.run();
 }

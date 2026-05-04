@@ -45,7 +45,8 @@ bool isValueTooLarge(const std::string& value) {
 
 }  // namespace
 
-std::string executeCommand(const std::vector<std::string>& command, Database &db) {
+std::string executeCommand(const std::vector<std::string>& command, Database& db,
+                           const std::string& dumpFile) {
   if (command.empty()) {
     return encodeError("empty command");
   }
@@ -97,6 +98,12 @@ std::string executeCommand(const std::vector<std::string>& command, Database &db
       return encodeError("argument too large");
     }
     return encodeInteger(db.del(command[1]) ? 1 : 0);
+  }
+  if (name == "SAVE" && command.size() == 1) {
+    if (!db.saveSnapshot(dumpFile)) {
+      return encodeError("save failed");
+    }
+    return encodeSimpleString("OK");
   }
 
   return encodeError("unknown command");

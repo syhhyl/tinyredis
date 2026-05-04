@@ -14,6 +14,7 @@
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <utility>
 #include <unordered_map>
 #include <unistd.h>
 #include <vector>
@@ -77,7 +78,7 @@ void closeConnection(EventLoop& loop, std::unordered_map<int, Connection>& conne
   connections.erase(fd);
 }
 
-void processInput(Connection& connection, Database& db) {
+void processInput(Connection& connection, Database& db, const std::string& dumpFile) {
   while (true) {
     std::vector<std::string> command;
     ParseResult result = parseRespCommand(&connection.input, &command);
@@ -95,14 +96,14 @@ void processInput(Connection& connection, Database& db) {
       return;
     }
 
-    if (!appendOutput(connection, executeCommand(command, db))) {
+    if (!appendOutput(connection, executeCommand(command, db, dumpFile))) {
       return;
     }
   }
 }
 
 void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& connections,
-                      int fd, Database& db) {
+                      int fd, Database& db, const std::string& dumpFile) {
   auto it = connections.find(fd);
   if (it == connections.end()) {
     return;
@@ -136,7 +137,7 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
   }
 
   if (!it->second.closeAfterWrite) {
-    processInput(it->second, db);
+    processInput(it->second, db, dumpFile);
   }
   if (it->second.closeAfterWrite && !hasPendingOutput(it->second)) {
     closeConnection(loop, connections, fd);
@@ -224,6 +225,17 @@ bool parseServerArgs(int argc, char* argv[], ServerOptions* options) {
       continue;
     }
 
+    if (arg == "--dump-file") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing path after --dump-file\n";
+        return false;
+      }
+
+      options->dump_file = argv[i + 1];
+      ++i;
+      continue;
+    }
+
     std::cerr << "unknown option: " << arg << '\n';
     return false;
   }
@@ -231,7 +243,7 @@ bool parseServerArgs(int argc, char* argv[], ServerOptions* options) {
   return true;
 }
 
-Server::Server(int port) : port_(port) {}
+Server::Server(int port, std::string dumpFile) : port_(port), dumpFile_(std::move(dumpFile)) {}
 
 Server::~Server() {
   closeListenFd();
@@ -245,6 +257,11 @@ void Server::closeListenFd() {
 }
 
 int Server::run() {
+  if (!db_.loadSnapshot(dumpFile_)) {
+    std::cerr << "failed to load snapshot: " << dumpFile_ << '\n';
+    return 1;
+  }
+
   serverFd_ = socket(AF_INET, SOCK_STREAM, 0);
   if (serverFd_ < 0) {
     std::cerr << "socket failed: " << std::strerror(errno) << '\n';
@@ -330,7 +347,7 @@ int Server::run() {
       }
 
       if (event.readable) {
-        handleClientRead(loop, connections, event.fd, db_);
+        handleClientRead(loop, connections, event.fd, db_, dumpFile_);
       }
       if (event.writable) {
         handleClientWrite(loop, connections, event.fd);

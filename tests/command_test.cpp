@@ -5,12 +5,32 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace {
 
 constexpr size_t kMaxCommandKeyLength = 1024;
 constexpr size_t kMaxCommandValueLength = 1024 * 1024;
+
+class TempPath {
+ public:
+  TempPath() {
+    char pattern[] = "/tmp/tinyredis-command-test-XXXXXX";
+    int fd = mkstemp(pattern);
+    assert(fd >= 0);
+    close(fd);
+    unlink(pattern);
+    path_ = pattern;
+  }
+
+  ~TempPath() { unlink(path_.c_str()); }
+
+  const std::string& path() const { return path_; }
+
+ private:
+  std::string path_;
+};
 
 void testExecutePing() {
   Database db;
@@ -88,6 +108,26 @@ void testExecuteUnknownCommand() {
 
   assert(executeCommand({"unknown"}, db) == "-ERR unknown command\r\n");
   std::cout << "PASS testExecuteUnknownCommand\n";
+}
+
+void testExecuteSaveWritesSnapshot() {
+  TempPath snapshot;
+  Database db;
+
+  assert(executeCommand({"set", "name", "hyl"}, db, snapshot.path()) == "+OK\r\n");
+  assert(executeCommand({"save"}, db, snapshot.path()) == "+OK\r\n");
+
+  Database loaded;
+  assert(loaded.loadSnapshot(snapshot.path()));
+  assert(loaded.get("name") == "hyl");
+  std::cout << "PASS testExecuteSaveWritesSnapshot\n";
+}
+
+void testExecuteSaveReportsFailure() {
+  Database db;
+
+  assert(executeCommand({"save"}, db, "/tmp") == "-ERR save failed\r\n");
+  std::cout << "PASS testExecuteSaveReportsFailure\n";
 }
 
 void testExecuteWrongArgumentCounts() {
@@ -188,6 +228,8 @@ int main() {
   testExecuteSetWithInvalidExpiration();
   testExecuteSetClearsPreviousExpiration();
   testExecuteUnknownCommand();
+  testExecuteSaveWritesSnapshot();
+  testExecuteSaveReportsFailure();
   testExecuteWrongArgumentCounts();
   testInvalidCommandDoesNotModifyExistingValue();
   testInvalidSetDoesNotCreateValue();

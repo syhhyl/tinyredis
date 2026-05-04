@@ -13,12 +13,32 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
+#include <utility>
 #include <unistd.h>
 #include <vector>
 
 namespace {
 
 constexpr size_t kMaxServerConnections = 128;
+
+class TempPath {
+ public:
+  TempPath() {
+    char pattern[] = "/tmp/tinyredis-server-test-XXXXXX";
+    int fd = mkstemp(pattern);
+    assert(fd >= 0);
+    close(fd);
+    unlink(pattern);
+    path_ = pattern;
+  }
+
+  ~TempPath() { unlink(path_.c_str()); }
+
+  const std::string& path() const { return path_; }
+
+ private:
+  std::string path_;
+};
 
 int reservePort() {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -108,12 +128,13 @@ int connectToServer(int port) {
 
 class ServerHarness {
  public:
-  ServerHarness() : port_(reservePort()) {
+  explicit ServerHarness(std::string dumpFile = "")
+      : port_(reservePort()), dumpFile_(dumpFile.empty() ? dumpPath_.path() : std::move(dumpFile)) {
     pid_ = fork();
     assert(pid_ >= 0);
 
     if (pid_ == 0) {
-      Server server(port_);
+      Server server(port_, dumpFile_);
       _exit(server.run());
     }
 
@@ -153,6 +174,8 @@ class ServerHarness {
   }
 
   int port_ = 0;
+  TempPath dumpPath_;
+  std::string dumpFile_;
   pid_t pid_ = -1;
 };
 
@@ -289,6 +312,42 @@ void testServerSharesDatabaseAcrossConnections() {
   std::cout << "PASS testServerSharesDatabaseAcrossConnections\n";
 }
 
+void testServerLoadsSnapshotOnStartup() {
+  TempPath snapshot;
+  Database db;
+  db.set("name", "hyl");
+  assert(db.saveSnapshot(snapshot.path()));
+
+  ServerHarness harness(snapshot.path());
+  int fd = harness.connectClient();
+
+  assert(writeAll(fd, "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"));
+  assert(readExact(fd, 9) == "$3\r\nhyl\r\n");
+
+  close(fd);
+  std::cout << "PASS testServerLoadsSnapshotOnStartup\n";
+}
+
+void testServerSaveWritesSnapshot() {
+  TempPath snapshot;
+  {
+    ServerHarness harness(snapshot.path());
+    int fd = harness.connectClient();
+
+    assert(writeAll(fd, "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n"));
+    assert(readExact(fd, 5) == "+OK\r\n");
+    assert(writeAll(fd, "*1\r\n$4\r\nSAVE\r\n"));
+    assert(readExact(fd, 5) == "+OK\r\n");
+
+    close(fd);
+  }
+
+  Database loaded;
+  assert(loaded.loadSnapshot(snapshot.path()));
+  assert(loaded.get("name") == "hyl");
+  std::cout << "PASS testServerSaveWritesSnapshot\n";
+}
+
 void testServerRejectsConnectionsOverLimit() {
   ServerHarness harness;
   std::vector<int> clients;
@@ -327,6 +386,7 @@ void testParseServerArgsDefaults() {
 
   assert(parseServerArgs(1, argv, &options));
   assert(options.port == kDefaultServerPort);
+  assert(options.dump_file == kDefaultServerDumpFile);
   std::cout << "PASS testParseServerArgsDefaults\n";
 }
 
@@ -340,6 +400,28 @@ void testParseServerArgsPort() {
   assert(parseServerArgs(3, argv, &options));
   assert(options.port == 6380);
   std::cout << "PASS testParseServerArgsPort\n";
+}
+
+void testParseServerArgsDumpFile() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--dump-file";
+  char arg2[] = "/tmp/tinyredis.rdb";
+  char* argv[] = {arg0, arg1, arg2};
+  ServerOptions options;
+
+  assert(parseServerArgs(3, argv, &options));
+  assert(options.dump_file == "/tmp/tinyredis.rdb");
+  std::cout << "PASS testParseServerArgsDumpFile\n";
+}
+
+void testParseServerArgsRejectsMissingDumpFile() {
+  char arg0[] = "tinyredis-server";
+  char arg1[] = "--dump-file";
+  char* argv[] = {arg0, arg1};
+  ServerOptions options;
+
+  assert(!parseServerArgs(2, argv, &options));
+  std::cout << "PASS testParseServerArgsRejectsMissingDumpFile\n";
 }
 
 void testParseServerArgsRejectsInvalidPort() {
@@ -379,9 +461,11 @@ void testParseServerArgsRejectsMissingPort() {
 int main() {
   testParseServerArgsDefaults();
   testParseServerArgsPort();
+  testParseServerArgsDumpFile();
   testParseServerArgsRejectsInvalidPort();
   testParseServerArgsRejectsOutOfRangePort();
   testParseServerArgsRejectsMissingPort();
+  testParseServerArgsRejectsMissingDumpFile();
   testServerHandlesPing();
   testServerKeepsDatabaseStateOnConnection();
   testServerHandlesMultipleCommandsInOneRead();
@@ -392,6 +476,8 @@ int main() {
   testServerClosesTooLargeOutputBuffer();
   testServerRespondsBeforeClosingAfterPeerHalfClose();
   testServerSharesDatabaseAcrossConnections();
+  testServerLoadsSnapshotOnStartup();
+  testServerSaveWritesSnapshot();
   testServerRejectsConnectionsOverLimit();
   std::cout << "PASS all Server tests\n";
   return 0;
