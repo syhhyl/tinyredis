@@ -16,6 +16,8 @@ void testEncodeCommand() {
 void testSplitLine() {
   assert((splitLine("SET name hyl") == std::vector<std::string>{"SET", "name", "hyl"}));
   assert((splitLine("  GET   name  ") == std::vector<std::string>{"GET", "name"}));
+  assert((splitLine("SET msg \"hello world\"") == std::vector<std::string>{"SET", "msg", "hello world"}));
+  assert((splitLine("SET empty \"\"") == std::vector<std::string>{"SET", "empty", ""}));
   assert(splitLine("   ").empty());
   std::cout << "PASS testSplitLine\n";
 }

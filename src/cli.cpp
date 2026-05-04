@@ -2,10 +2,10 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cctype>
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
-#include <sstream>
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -149,12 +149,33 @@ std::string encodeCommand(const std::vector<std::string>& args) {
 }
 
 std::vector<std::string> splitLine(const std::string& line) {
-  std::istringstream stream(line);
   std::vector<std::string> args;
-  std::string arg;
+  std::string current;
+  bool inQuotes = false;
+  bool hasArg = false;
 
-  while (stream >> arg) {
-    args.push_back(arg);
+  for (char ch : line) {
+    if (ch == '"') {
+      inQuotes = !inQuotes;
+      hasArg = true;
+      continue;
+    }
+
+    if (std::isspace(static_cast<unsigned char>(ch)) && !inQuotes) {
+      if (hasArg) {
+        args.push_back(current);
+        current.clear();
+        hasArg = false;
+      }
+      continue;
+    }
+
+    current.push_back(ch);
+    hasArg = true;
+  }
+
+  if (hasArg) {
+    args.push_back(current);
   }
 
   return args;
