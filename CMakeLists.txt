@@ -28,10 +28,6 @@ add_executable(tinyredis-cli
   src/tinyredis-cli.cpp
 )
 
-add_executable(tinyredis-benchmark
-  src/benchmark.cpp
-)
-
 if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
   enable_testing()
 
