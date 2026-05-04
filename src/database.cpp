@@ -1,8 +1,12 @@
 #include "database.h"
 
+#include <cerrno>
 #include <cstdint>
+#include <fcntl.h>
 #include <fstream>
 #include <limits>
+#include <string>
+#include <unistd.h>
 #include <utility>
 
 namespace {
@@ -13,15 +17,64 @@ constexpr uint64_t kMaxSnapshotKeyBytes = 1024;
 constexpr uint64_t kMaxSnapshotValueBytes = 1024 * 1024;
 
 template <typename T>
-bool writeValue(std::ostream& out, T value) {
-  out.write(reinterpret_cast<const char*>(&value), sizeof(value));
-  return out.good();
-}
-
-template <typename T>
 bool readValue(std::istream& in, T& value) {
   in.read(reinterpret_cast<char*>(&value), sizeof(value));
   return in.good();
+}
+
+bool writeAll(int fd, const void* data, size_t size) {
+  const char* bytes = static_cast<const char*>(data);
+  size_t written = 0;
+
+  while (written < size) {
+    ssize_t n = write(fd, bytes + written, size - written);
+    if (n < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    if (n == 0) {
+      return false;
+    }
+    written += static_cast<size_t>(n);
+  }
+
+  return true;
+}
+
+template <typename T>
+bool writeValueToFd(int fd, T value) {
+  return writeAll(fd, &value, sizeof(value));
+}
+
+std::string parentDirectoryOf(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) {
+    return ".";
+  }
+  if (slash == 0) {
+    return "/";
+  }
+  return path.substr(0, slash);
+}
+
+bool syncAndClose(int fd) {
+  bool ok = fsync(fd) == 0;
+  if (close(fd) != 0) {
+    ok = false;
+  }
+  return ok;
+}
+
+bool fsyncParentDirectory(const std::string& path) {
+  std::string dir = parentDirectoryOf(path);
+  int fd = open(dir.c_str(), O_RDONLY);
+  if (fd < 0) {
+    return false;
+  }
+
+  return syncAndClose(fd);
 }
 
 int64_t toEpochMilliseconds(std::chrono::system_clock::time_point time) {
@@ -73,36 +126,45 @@ bool Database::del(const std::string& key) {
 bool Database::saveSnapshot(const std::string& path) {
   eraseExpiredKeys();
 
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
+  const std::string tmpPath = path + ".tmp";
+  int fd = open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0) {
     return false;
   }
 
-  out.write(kSnapshotMagic, sizeof(kSnapshotMagic) - 1);
-  if (!out.good() || !writeValue<uint64_t>(out, map_store_.size())) {
-    return false;
-  }
+  bool ok = true;
+  ok = ok && writeAll(fd, kSnapshotMagic, sizeof(kSnapshotMagic) - 1);
+  ok = ok && writeValueToFd<uint64_t>(fd, map_store_.size());
 
   for (const auto& [key, entry] : map_store_) {
+    if (!ok) {
+      break;
+    }
+
     int64_t expiresAtMs = -1;
     if (entry.expires_at) {
       expiresAtMs = toEpochMilliseconds(*entry.expires_at);
     }
 
-    if (!writeValue<uint64_t>(out, key.size()) ||
-        !writeValue<uint64_t>(out, entry.value.size()) ||
-        !writeValue<int64_t>(out, expiresAtMs)) {
-      return false;
-    }
-
-    out.write(key.data(), static_cast<std::streamsize>(key.size()));
-    out.write(entry.value.data(), static_cast<std::streamsize>(entry.value.size()));
-    if (!out.good()) {
-      return false;
-    }
+    ok = ok && writeValueToFd<uint64_t>(fd, key.size());
+    ok = ok && writeValueToFd<uint64_t>(fd, entry.value.size());
+    ok = ok && writeValueToFd<int64_t>(fd, expiresAtMs);
+    ok = ok && writeAll(fd, key.data(), key.size());
+    ok = ok && writeAll(fd, entry.value.data(), entry.value.size());
   }
 
-  return out.good();
+  ok = syncAndClose(fd) && ok;
+  if (!ok) {
+    unlink(tmpPath.c_str());
+    return false;
+  }
+
+  if (rename(tmpPath.c_str(), path.c_str()) != 0) {
+    unlink(tmpPath.c_str());
+    return false;
+  }
+
+  return fsyncParentDirectory(path);
 }
 
 bool Database::loadSnapshot(const std::string& path) {
