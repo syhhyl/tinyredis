@@ -13,4 +13,5 @@ struct CliOptions {
 std::string encodeCommand(const std::vector<std::string>& args);
 std::vector<std::string> splitLine(const std::string& line);
 bool parseArgs(int argc, char* argv[], CliOptions &options);
+bool printResponse(int fd);
 int runCli(int argc, char* argv[]);

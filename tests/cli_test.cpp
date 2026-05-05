@@ -3,9 +3,59 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
+
+void writeAll(int fd, const std::string& data) {
+  size_t written = 0;
+  while (written < data.size()) {
+    ssize_t n = write(fd, data.data() + written, data.size() - written);
+    assert(n > 0);
+    written += static_cast<size_t>(n);
+  }
+}
+
+std::string readAll(int fd) {
+  std::string output;
+  char buffer[256];
+  while (true) {
+    ssize_t n = read(fd, buffer, sizeof(buffer));
+    if (n <= 0) {
+      break;
+    }
+    output.append(buffer, static_cast<size_t>(n));
+  }
+  return output;
+}
+
+std::string capturePrintResponse(const std::string& response) {
+  int input[2];
+  int output[2];
+  assert(pipe(input) == 0);
+  assert(pipe(output) == 0);
+
+  writeAll(input[1], response);
+  close(input[1]);
+
+  std::cout.flush();
+  int savedStdout = dup(STDOUT_FILENO);
+  assert(savedStdout >= 0);
+  assert(dup2(output[1], STDOUT_FILENO) >= 0);
+  close(output[1]);
+
+  assert(printResponse(input[0]));
+  std::cout.flush();
+
+  assert(dup2(savedStdout, STDOUT_FILENO) >= 0);
+  close(savedStdout);
+  close(input[0]);
+
+  std::string printed = readAll(output[0]);
+  close(output[0]);
+  return printed;
+}
 
 void testEncodeCommand() {
   assert(encodeCommand({"SET", "name", "hyl"}) == "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n");
@@ -81,6 +131,18 @@ void testParseArgsRejectsMissingPort() {
   std::cout << "PASS testParseArgsRejectsMissingPort\n";
 }
 
+void testPrintResponseArray() {
+  assert(capturePrintResponse("*3\r\n$2\r\n21\r\n$3\r\nsyh\r\n$-1\r\n") ==
+         "1) \"21\"\n2) \"syh\"\n3) (nil)\n");
+  std::cout << "PASS testPrintResponseArray\n";
+}
+
+void testPrintResponseNestedArray() {
+  assert(capturePrintResponse("*2\r\n*2\r\n$1\r\na\r\n$1\r\nb\r\n:3\r\n") ==
+         "1) 1) \"a\"\n   2) \"b\"\n2) (integer) 3\n");
+  std::cout << "PASS testPrintResponseNestedArray\n";
+}
+
 }  // namespace
 
 int main() {
@@ -91,6 +153,8 @@ int main() {
   testParseArgsRejectsInvalidPort();
   testParseArgsRejectsPartiallyParsedPort();
   testParseArgsRejectsMissingPort();
+  testPrintResponseArray();
+  testPrintResponseNestedArray();
   std::cout << "PASS all cli tests\n";
   return 0;
 }

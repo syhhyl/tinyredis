@@ -87,7 +87,14 @@ bool readBytes(int fd, size_t len, std::string* value) {
   return readLine(fd, &crlf);
 }
 
-bool printResponse(int fd) {
+std::string arrayItemPrefix(const std::string& prefix, int index) {
+  if (prefix.empty() || index == 0) {
+    return prefix + std::to_string(index + 1) + ") ";
+  }
+  return std::string(prefix.size(), ' ') + std::to_string(index + 1) + ") ";
+}
+
+bool printResponseValue(int fd, const std::string& prefix) {
   char type = 0;
   ssize_t n = read(fd, &type, 1);
   if (n <= 0) {
@@ -100,21 +107,21 @@ bool printResponse(int fd) {
   }
 
   if (type == '+') {
-    std::cout << line << '\n';
+    std::cout << prefix << line << '\n';
     return true;
   }
   if (type == '-') {
-    std::cout << line << '\n';
+    std::cout << prefix << line << '\n';
     return true;
   }
   if (type == ':') {
-    std::cout << "(integer) " << line << '\n';
+    std::cout << prefix << "(integer) " << line << '\n';
     return true;
   }
   if (type == '$') {
     int len = std::stoi(line);
     if (len < 0) {
-      std::cout << "(nil)\n";
+      std::cout << prefix << "(nil)\n";
       return true;
     }
 
@@ -122,11 +129,30 @@ bool printResponse(int fd) {
     if (!readBytes(fd, static_cast<size_t>(len), &value)) {
       return false;
     }
-    std::cout << value << '\n';
+    if (prefix.empty()) {
+      std::cout << value << '\n';
+    } else {
+      std::cout << prefix << '"' << value << '"' << '\n';
+    }
+    return true;
+  }
+  if (type == '*') {
+    int len = std::stoi(line);
+    if (len < 0) {
+      std::cout << prefix << "(nil)\n";
+      return true;
+    }
+
+    for (int i = 0; i < len; ++i) {
+      std::string itemPrefix = arrayItemPrefix(prefix, i);
+      if (!printResponseValue(fd, itemPrefix)) {
+        return false;
+      }
+    }
     return true;
   }
 
-  std::cout << type << line << '\n';
+  std::cout << prefix << type << line << '\n';
   return true;
 }
 
@@ -136,6 +162,10 @@ bool runCommand(int fd, const std::vector<std::string>& args) {
 }
 
 }  // namespace
+
+bool printResponse(int fd) {
+  return printResponseValue(fd, "");
+}
 
 std::string encodeCommand(const std::vector<std::string>& args) {
   std::string request = "*" + std::to_string(args.size()) + "\r\n";
