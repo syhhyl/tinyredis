@@ -1,6 +1,7 @@
 #include "database.h"
 
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
 #include <fcntl.h>
 #include <fstream>
@@ -8,6 +9,8 @@
 #include <string>
 #include <unistd.h>
 #include <utility>
+#include <charconv>
+#include <system_error>
 
 namespace {
 
@@ -85,6 +88,20 @@ std::chrono::system_clock::time_point fromEpochMilliseconds(int64_t milliseconds
   return std::chrono::system_clock::time_point(std::chrono::milliseconds(milliseconds));
 }
 
+std::optional<long long> parseInteger(const std::string &s) {
+  if (s.empty()) {
+    return std::nullopt;
+  }
+  
+  long long value;
+  auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+  if (ec != std::errc{} || ptr != s.data() + s.size()) {
+    return std::nullopt;
+  }
+
+  return value;
+}
+
 }  // namespace
 
 void Database::set(const std::string& key, const std::string& value) {
@@ -139,6 +156,46 @@ bool Database::del(const std::string& key) {
 
   eraseKey(it);
   return true;
+}
+
+std::optional<long long> Database::incr(const std::string &key) {
+  eraseIfExpired(key);
+  
+  auto it = map_store_.find(key);
+  if (it == map_store_.end()) {
+    map_store_.emplace(key, Entry{"1", std::nullopt}); 
+    return 1;
+  }
+  
+  auto parsed = parseInteger(it->second.value);
+  if (!parsed || *parsed == std::numeric_limits<long long>::max()) {
+    return std::nullopt;
+  }
+  
+  long long new_value = *parsed + 1;
+  it->second.value = std::to_string(new_value);
+  
+  return new_value;
+}
+
+std::optional<long long> Database::decr(const std::string &key) {
+  eraseIfExpired(key);
+  
+  auto it = map_store_.find(key);
+  if (it == map_store_.end()) {
+    map_store_.emplace(key, Entry{"-1", std::nullopt});
+    return -1;
+  }
+  
+  auto parsed = parseInteger(it->second.value);
+  if (!parsed || *parsed == std::numeric_limits<long long>::min()) {
+    return std::nullopt;
+  }
+  
+  long long new_value = *parsed - 1;
+  it->second.value = std::to_string(new_value);
+
+  return new_value;
 }
 
 bool Database::expire(const std::string& key, std::chrono::milliseconds ttl) {

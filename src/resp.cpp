@@ -113,7 +113,7 @@ std::string encodeError(const std::string& message) {
   return "-ERR " + message + "\r\n";
 }
 
-std::string encodeInteger(int value) {
+std::string encodeInteger(const long long value) {
   return ":" + std::to_string(value) + "\r\n";
 }
 

@@ -16,6 +16,9 @@ public:
   std::optional<std::string> get(const std::string &key);
   bool exists(const std::string &key);
   bool del(const std::string &key);
+  std::optional<long long> incr(const std::string &key);
+  std::optional<long long> decr(const std::string &key);
+  
   bool expire(const std::string& key, std::chrono::milliseconds ttl);
   long long ttl(const std::string& key);
   bool persist(const std::string& key);

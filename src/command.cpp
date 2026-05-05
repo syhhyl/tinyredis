@@ -99,6 +99,26 @@ std::string executeCommand(const std::vector<std::string>& command, Database& db
     }
     return encodeInteger(db.del(command[1]) ? 1 : 0);
   }
+  if (name == "INCR" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
+    auto value = db.incr(command[1]);
+    if (!value) {
+      return encodeError("value is not an integer or out of range");
+    }
+    return encodeInteger(*value);
+  }
+  if (name == "DECR" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
+    auto value = db.decr(command[1]);
+    if (!value) {
+      return encodeError("value is not an integer or out of range");
+    }
+    return encodeInteger(*value);
+  }
   if (name == "EXPIRE" && command.size() == 3) {
     if (isKeyTooLarge(command[1])) {
       return encodeError("argument too large");

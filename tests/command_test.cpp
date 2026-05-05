@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -12,6 +13,8 @@ namespace {
 
 constexpr size_t kMaxCommandKeyLength = 1024;
 constexpr size_t kMaxCommandValueLength = 1024 * 1024;
+constexpr std::chrono::milliseconds kShortTtl(500);
+constexpr std::chrono::milliseconds kShortTtlWait(600);
 
 class TempPath {
  public:
@@ -72,10 +75,10 @@ void testExecuteSetGetExistsDel() {
 void testExecuteSetWithExpiration() {
   Database db;
 
-  assert(executeCommand({"set", "name", "hyl", "ex", "1"}, db) == "+OK\r\n");
+  db.set("name", "hyl", kShortTtl);
   assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  std::this_thread::sleep_for(kShortTtlWait);
   assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
   assert(executeCommand({"exists", "name"}, db) == ":0\r\n");
   assert(executeCommand({"del", "name"}, db) == ":0\r\n");
@@ -95,10 +98,10 @@ void testExecuteSetWithInvalidExpiration() {
 void testExecuteSetClearsPreviousExpiration() {
   Database db;
 
-  assert(executeCommand({"set", "name", "hyl", "ex", "1"}, db) == "+OK\r\n");
+  db.set("name", "hyl", kShortTtl);
   assert(executeCommand({"set", "name", "redis"}, db) == "+OK\r\n");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  std::this_thread::sleep_for(kShortTtlWait);
   assert(executeCommand({"get", "name"}, db) == "$5\r\nredis\r\n");
   std::cout << "PASS testExecuteSetClearsPreviousExpiration\n";
 }
@@ -112,7 +115,8 @@ void testExecuteExpire() {
   assert(executeCommand({"expire", "name", "0"}, db) == "-ERR invalid expire time\r\n");
   assert(executeCommand({"expire", "name", "abc"}, db) == "-ERR invalid expire time\r\n");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  assert(db.expire("name", kShortTtl));
+  std::this_thread::sleep_for(kShortTtlWait);
   assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
   std::cout << "PASS testExecuteExpire\n";
 }
@@ -123,12 +127,13 @@ void testExecuteTtl() {
   assert(executeCommand({"ttl", "missing"}, db) == ":-2\r\n");
   assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
   assert(executeCommand({"ttl", "name"}, db) == ":-1\r\n");
-  assert(executeCommand({"expire", "name", "2"}, db) == ":1\r\n");
+  assert(executeCommand({"expire", "name", "1"}, db) == ":1\r\n");
 
   std::string ttl = executeCommand({"ttl", "name"}, db);
-  assert(ttl == ":1\r\n" || ttl == ":2\r\n");
+  assert(ttl == ":0\r\n" || ttl == ":1\r\n");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+  assert(db.expire("name", kShortTtl));
+  std::this_thread::sleep_for(kShortTtlWait);
   assert(executeCommand({"ttl", "name"}, db) == ":-2\r\n");
   std::cout << "PASS testExecuteTtl\n";
 }
@@ -139,13 +144,121 @@ void testExecutePersist() {
   assert(executeCommand({"persist", "missing"}, db) == ":0\r\n");
   assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
   assert(executeCommand({"persist", "name"}, db) == ":0\r\n");
-  assert(executeCommand({"expire", "name", "1"}, db) == ":1\r\n");
+  assert(db.expire("name", kShortTtl));
   assert(executeCommand({"persist", "name"}, db) == ":1\r\n");
   assert(executeCommand({"ttl", "name"}, db) == ":-1\r\n");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  std::this_thread::sleep_for(kShortTtlWait);
   assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
   std::cout << "PASS testExecutePersist\n";
+}
+
+void testExecuteIncr() {
+  Database db;
+
+  assert(executeCommand({"incr", "missing"}, db) == ":1\r\n");
+  assert(executeCommand({"get", "missing"}, db) == "$1\r\n1\r\n");
+  assert(executeCommand({"set", "count", "0"}, db) == "+OK\r\n");
+  assert(executeCommand({"incr", "count"}, db) == ":1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$1\r\n1\r\n");
+  assert(executeCommand({"set", "negative", "-1"}, db) == "+OK\r\n");
+  assert(executeCommand({"incr", "negative"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteIncr\n";
+}
+
+void testExecuteIncrRejectsInvalidInteger() {
+  Database db;
+
+  assert(executeCommand({"set", "count", "abc"}, db) == "+OK\r\n");
+  assert(executeCommand({"incr", "count"}, db) == "-ERR value is not an integer or out of range\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$3\r\nabc\r\n");
+  std::cout << "PASS testExecuteIncrRejectsInvalidInteger\n";
+}
+
+void testExecuteIncrRejectsOverflow() {
+  Database db;
+  std::string max = std::to_string(std::numeric_limits<long long>::max());
+
+  assert(executeCommand({"set", "count", max}, db) == "+OK\r\n");
+  assert(executeCommand({"incr", "count"}, db) == "-ERR value is not an integer or out of range\r\n");
+  assert(executeCommand({"get", "count"}, db) ==
+         "$" + std::to_string(max.size()) + "\r\n" + max + "\r\n");
+  std::cout << "PASS testExecuteIncrRejectsOverflow\n";
+}
+
+void testExecuteIncrTreatsExpiredKeyAsMissing() {
+  Database db;
+
+  db.set("count", "10", kShortTtl);
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(executeCommand({"incr", "count"}, db) == ":1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$1\r\n1\r\n");
+  std::cout << "PASS testExecuteIncrTreatsExpiredKeyAsMissing\n";
+}
+
+void testExecuteIncrPreservesTtl() {
+  Database db;
+
+  assert(executeCommand({"set", "count", "10", "ex", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"incr", "count"}, db) == ":11\r\n");
+
+  std::string ttl = executeCommand({"ttl", "count"}, db);
+  assert(ttl == ":0\r\n" || ttl == ":1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$2\r\n11\r\n");
+  std::cout << "PASS testExecuteIncrPreservesTtl\n";
+}
+
+void testExecuteDecr() {
+  Database db;
+
+  assert(executeCommand({"decr", "missing"}, db) == ":-1\r\n");
+  assert(executeCommand({"get", "missing"}, db) == "$2\r\n-1\r\n");
+  assert(executeCommand({"set", "count", "0"}, db) == "+OK\r\n");
+  assert(executeCommand({"decr", "count"}, db) == ":-1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$2\r\n-1\r\n");
+  std::cout << "PASS testExecuteDecr\n";
+}
+
+void testExecuteDecrRejectsInvalidInteger() {
+  Database db;
+
+  assert(executeCommand({"set", "count", "abc"}, db) == "+OK\r\n");
+  assert(executeCommand({"decr", "count"}, db) == "-ERR value is not an integer or out of range\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$3\r\nabc\r\n");
+  std::cout << "PASS testExecuteDecrRejectsInvalidInteger\n";
+}
+
+void testExecuteDecrRejectsOverflow() {
+  Database db;
+  std::string min = std::to_string(std::numeric_limits<long long>::min());
+
+  assert(executeCommand({"set", "count", min}, db) == "+OK\r\n");
+  assert(executeCommand({"decr", "count"}, db) == "-ERR value is not an integer or out of range\r\n");
+  assert(executeCommand({"get", "count"}, db) ==
+         "$" + std::to_string(min.size()) + "\r\n" + min + "\r\n");
+  std::cout << "PASS testExecuteDecrRejectsOverflow\n";
+}
+
+void testExecuteDecrTreatsExpiredKeyAsMissing() {
+  Database db;
+
+  db.set("count", "10", kShortTtl);
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(executeCommand({"decr", "count"}, db) == ":-1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$2\r\n-1\r\n");
+  std::cout << "PASS testExecuteDecrTreatsExpiredKeyAsMissing\n";
+}
+
+void testExecuteDecrPreservesTtl() {
+  Database db;
+
+  assert(executeCommand({"set", "count", "10", "ex", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"decr", "count"}, db) == ":9\r\n");
+
+  std::string ttl = executeCommand({"ttl", "count"}, db);
+  assert(ttl == ":0\r\n" || ttl == ":1\r\n");
+  assert(executeCommand({"get", "count"}, db) == "$1\r\n9\r\n");
+  std::cout << "PASS testExecuteDecrPreservesTtl\n";
 }
 
 void testExecuteUnknownCommand() {
@@ -185,6 +298,10 @@ void testExecuteWrongArgumentCounts() {
   assert(executeCommand({"exists", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"del"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"del", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"incr"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"incr", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"decr"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"decr", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"expire", "name"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"expire", "name", "1", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"ttl"}, db) == "-ERR unknown command\r\n");
@@ -252,6 +369,8 @@ void testKeyCommandsRejectTooLargeKey() {
   assert(executeCommand({"get", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"exists", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"del", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"incr", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"decr", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"expire", key, "1"}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"ttl", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"persist", key}, db) == "-ERR argument too large\r\n");
@@ -284,6 +403,16 @@ int main() {
   testExecuteExpire();
   testExecuteTtl();
   testExecutePersist();
+  testExecuteIncr();
+  testExecuteIncrRejectsInvalidInteger();
+  testExecuteIncrRejectsOverflow();
+  testExecuteIncrTreatsExpiredKeyAsMissing();
+  testExecuteIncrPreservesTtl();
+  testExecuteDecr();
+  testExecuteDecrRejectsInvalidInteger();
+  testExecuteDecrRejectsOverflow();
+  testExecuteDecrTreatsExpiredKeyAsMissing();
+  testExecuteDecrPreservesTtl();
   testExecuteUnknownCommand();
   testExecuteSaveWritesSnapshot();
   testExecuteSaveReportsFailure();
