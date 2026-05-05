@@ -141,6 +141,58 @@ bool Database::del(const std::string& key) {
   return true;
 }
 
+bool Database::expire(const std::string& key, std::chrono::milliseconds ttl) {
+  if (eraseIfExpired(key)) {
+    return false;
+  }
+
+  auto it = map_store_.find(key);
+  if (it == map_store_.end()) {
+    return false;
+  }
+
+  if (it->second.expires_at) {
+    expire_index_.erase(ExpireRecord{*it->second.expires_at, key});
+  }
+
+  auto expiresAt = std::chrono::system_clock::now() + ttl;
+  it->second.expires_at = expiresAt;
+  expire_index_.insert(ExpireRecord{expiresAt, key});
+  return true;
+}
+
+long long Database::ttl(const std::string& key) {
+  if (eraseIfExpired(key)) {
+    return -2;
+  }
+
+  auto it = map_store_.find(key);
+  if (it == map_store_.end()) {
+    return -2;
+  }
+  if (!it->second.expires_at) {
+    return -1;
+  }
+
+  auto remaining = *it->second.expires_at - std::chrono::system_clock::now();
+  return std::chrono::duration_cast<std::chrono::seconds>(remaining).count();
+}
+
+bool Database::persist(const std::string& key) {
+  if (eraseIfExpired(key)) {
+    return false;
+  }
+
+  auto it = map_store_.find(key);
+  if (it == map_store_.end() || !it->second.expires_at) {
+    return false;
+  }
+
+  expire_index_.erase(ExpireRecord{*it->second.expires_at, key});
+  it->second.expires_at = std::nullopt;
+  return true;
+}
+
 size_t Database::expireDue(size_t maxKeys, std::chrono::microseconds maxDuration) {
   if (maxKeys == 0 || expire_index_.empty()) {
     return 0;

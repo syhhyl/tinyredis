@@ -16,6 +16,9 @@ public:
   std::optional<std::string> get(const std::string &key);
   bool exists(const std::string &key);
   bool del(const std::string &key);
+  bool expire(const std::string& key, std::chrono::milliseconds ttl);
+  long long ttl(const std::string& key);
+  bool persist(const std::string& key);
   size_t expireDue(size_t maxKeys, std::chrono::microseconds maxDuration);
   size_t size() const;
   size_t ttlSize() const;

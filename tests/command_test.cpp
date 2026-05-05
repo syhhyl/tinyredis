@@ -103,6 +103,51 @@ void testExecuteSetClearsPreviousExpiration() {
   std::cout << "PASS testExecuteSetClearsPreviousExpiration\n";
 }
 
+void testExecuteExpire() {
+  Database db;
+
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"expire", "name", "1"}, db) == ":1\r\n");
+  assert(executeCommand({"expire", "missing", "1"}, db) == ":0\r\n");
+  assert(executeCommand({"expire", "name", "0"}, db) == "-ERR invalid expire time\r\n");
+  assert(executeCommand({"expire", "name", "abc"}, db) == "-ERR invalid expire time\r\n");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  assert(executeCommand({"get", "name"}, db) == "$-1\r\n");
+  std::cout << "PASS testExecuteExpire\n";
+}
+
+void testExecuteTtl() {
+  Database db;
+
+  assert(executeCommand({"ttl", "missing"}, db) == ":-2\r\n");
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"ttl", "name"}, db) == ":-1\r\n");
+  assert(executeCommand({"expire", "name", "2"}, db) == ":1\r\n");
+
+  std::string ttl = executeCommand({"ttl", "name"}, db);
+  assert(ttl == ":1\r\n" || ttl == ":2\r\n");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+  assert(executeCommand({"ttl", "name"}, db) == ":-2\r\n");
+  std::cout << "PASS testExecuteTtl\n";
+}
+
+void testExecutePersist() {
+  Database db;
+
+  assert(executeCommand({"persist", "missing"}, db) == ":0\r\n");
+  assert(executeCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(executeCommand({"persist", "name"}, db) == ":0\r\n");
+  assert(executeCommand({"expire", "name", "1"}, db) == ":1\r\n");
+  assert(executeCommand({"persist", "name"}, db) == ":1\r\n");
+  assert(executeCommand({"ttl", "name"}, db) == ":-1\r\n");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testExecutePersist\n";
+}
+
 void testExecuteUnknownCommand() {
   Database db;
 
@@ -140,6 +185,12 @@ void testExecuteWrongArgumentCounts() {
   assert(executeCommand({"exists", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"del"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"del", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"expire", "name"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"expire", "name", "1", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"ttl"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"ttl", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"persist"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"persist", "name", "extra"}, db) == "-ERR unknown command\r\n");
   std::cout << "PASS testExecuteWrongArgumentCounts\n";
 }
 
@@ -201,6 +252,9 @@ void testKeyCommandsRejectTooLargeKey() {
   assert(executeCommand({"get", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"exists", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"del", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"expire", key, "1"}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"ttl", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"persist", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
   std::cout << "PASS testKeyCommandsRejectTooLargeKey\n";
 }
@@ -227,6 +281,9 @@ int main() {
   testExecuteSetWithExpiration();
   testExecuteSetWithInvalidExpiration();
   testExecuteSetClearsPreviousExpiration();
+  testExecuteExpire();
+  testExecuteTtl();
+  testExecutePersist();
   testExecuteUnknownCommand();
   testExecuteSaveWritesSnapshot();
   testExecuteSaveReportsFailure();

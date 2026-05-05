@@ -99,6 +99,29 @@ std::string executeCommand(const std::vector<std::string>& command, Database& db
     }
     return encodeInteger(db.del(command[1]) ? 1 : 0);
   }
+  if (name == "EXPIRE" && command.size() == 3) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
+    auto seconds = parsePositiveInteger(command[2]);
+    if (!seconds || *seconds > std::numeric_limits<long long>::max() / 1000) {
+      return encodeError("invalid expire time");
+    }
+
+    return encodeInteger(db.expire(command[1], std::chrono::milliseconds(*seconds * 1000)) ? 1 : 0);
+  }
+  if (name == "TTL" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
+    return encodeInteger(db.ttl(command[1]));
+  }
+  if (name == "PERSIST" && command.size() == 2) {
+    if (isKeyTooLarge(command[1])) {
+      return encodeError("argument too large");
+    }
+    return encodeInteger(db.persist(command[1]) ? 1 : 0);
+  }
   if (name == "SAVE" && command.size() == 1) {
     if (!db.saveSnapshot(dumpFile)) {
       return encodeError("save failed");
