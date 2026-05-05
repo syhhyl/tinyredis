@@ -124,3 +124,11 @@ std::string encodeBulkString(const std::string& value) {
 std::string encodeNullBulkString() {
   return "$-1\r\n";
 }
+
+std::string encodeBulkStringArray(const std::vector<std::optional<std::string>>& values) {
+  std::string output = "*" + std::to_string(values.size()) + "\r\n";
+  for (const auto& value : values) {
+    output += value ? encodeBulkString(*value) : encodeNullBulkString();
+  }
+  return output;
+}

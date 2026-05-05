@@ -143,6 +143,8 @@ void testEncodeRespValues() {
   assert(encodeInteger(1) == ":1\r\n");
   assert(encodeBulkString("hyl") == "$3\r\nhyl\r\n");
   assert(encodeNullBulkString() == "$-1\r\n");
+  assert(encodeBulkStringArray({std::string("a"), std::nullopt, std::string("b")}) ==
+         "*3\r\n$1\r\na\r\n$-1\r\n$1\r\nb\r\n");
   std::cout << "PASS testEncodeRespValues\n";
 }
 

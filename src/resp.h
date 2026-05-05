@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,3 +23,4 @@ std::string encodeError(const std::string& message);
 std::string encodeInteger(int value);
 std::string encodeBulkString(const std::string& value);
 std::string encodeNullBulkString();
+std::string encodeBulkStringArray(const std::vector<std::optional<std::string>>& values);
