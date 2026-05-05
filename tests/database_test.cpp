@@ -75,6 +75,53 @@ void testDatabaseSetClearsPreviousExpiration() {
   std::cout << "PASS testDatabaseSetClearsPreviousExpiration\n";
 }
 
+void testDatabaseExpireDueRemovesColdExpiredKeysWithinLimit() {
+  Database db;
+
+  db.set("a", "1", std::chrono::milliseconds(10));
+  db.set("b", "2", std::chrono::milliseconds(10));
+  db.set("c", "3", std::chrono::milliseconds(10));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  assert(db.size() == 3);
+  assert(db.ttlSize() == 3);
+
+  assert(db.expireDue(2, std::chrono::milliseconds(100)) == 2);
+  assert(db.size() == 1);
+  assert(db.ttlSize() == 1);
+
+  assert(db.expireDue(2, std::chrono::milliseconds(100)) == 1);
+  assert(db.size() == 0);
+  assert(db.ttlSize() == 0);
+  std::cout << "PASS testDatabaseExpireDueRemovesColdExpiredKeysWithinLimit\n";
+}
+
+void testDatabaseExpireDueKeepsUpdatedTtl() {
+  Database db;
+
+  db.set("name", "old", std::chrono::milliseconds(10));
+  db.set("name", "new", std::chrono::milliseconds(1000));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  assert(db.expireDue(10, std::chrono::milliseconds(100)) == 0);
+  assert(db.get("name") == "new");
+  assert(db.ttlSize() == 1);
+  std::cout << "PASS testDatabaseExpireDueKeepsUpdatedTtl\n";
+}
+
+void testDatabaseExpireDueKeepsKeyWhenTtlCleared() {
+  Database db;
+
+  db.set("name", "old", std::chrono::milliseconds(10));
+  db.set("name", "new");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  assert(db.expireDue(10, std::chrono::milliseconds(100)) == 0);
+  assert(db.get("name") == "new");
+  assert(db.ttlSize() == 0);
+  std::cout << "PASS testDatabaseExpireDueKeepsKeyWhenTtlCleared\n";
+}
+
 void testDatabaseSnapshotSavesAndLoadsValues() {
   TempPath snapshot;
   Database saved;
@@ -135,6 +182,9 @@ int main() {
   testDatabaseSetGetExistsDel();
   testDatabaseExpiresKeys();
   testDatabaseSetClearsPreviousExpiration();
+  testDatabaseExpireDueRemovesColdExpiredKeysWithinLimit();
+  testDatabaseExpireDueKeepsUpdatedTtl();
+  testDatabaseExpireDueKeepsKeyWhenTtlCleared();
   testDatabaseSnapshotSavesAndLoadsValues();
   testDatabaseSnapshotSkipsExpiredKeysOnSave();
   testDatabaseLoadMissingSnapshotAsEmptyDatabase();

@@ -7,6 +7,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstring>
 #include <exception>
@@ -27,6 +28,9 @@ constexpr int kBufferSize = 4096;
 constexpr int kMaxReadsPerEvent = 16;
 constexpr int kMaxPort = 65535;
 constexpr size_t kMaxOutputBufferBytes = 4 * 1024 * 1024;
+constexpr int kExpireCheckIntervalMs = 100;
+constexpr size_t kMaxExpireKeysPerTick = 64;
+constexpr std::chrono::microseconds kMaxExpireWorkPerTick(500);
 
 volatile std::sig_atomic_t gShutdownRequested = 0;
 int gShutdownPipeWriteFd = -1;
@@ -367,7 +371,7 @@ int Server::run() {
 
   bool shuttingDown = false;
   while (!shuttingDown) {
-    for (const Event& event : loop.wait()) {
+    for (const Event& event : loop.wait(kExpireCheckIntervalMs)) {
       if (event.fd == shutdownPipe[0] && event.readable) {
         drainShutdownPipe(shutdownPipe[0]);
         shuttingDown = true;
@@ -433,6 +437,8 @@ int Server::run() {
         }
       }
     }
+
+    db_.expireDue(kMaxExpireKeysPerTick, kMaxExpireWorkPerTick);
   }
 
   if (serverFd_ >= 0) {

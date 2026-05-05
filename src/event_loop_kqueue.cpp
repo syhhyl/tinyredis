@@ -59,14 +59,22 @@ class KqueueEventLoopBackend : public EventLoopBackend {
     applyEventChange(backendFd_, fd, EVFILT_WRITE, EV_DELETE);
   }
 
-  std::vector<Event> wait() override {
+  std::vector<Event> wait(int timeoutMs) override {
     std::vector<Event> events;
     if (!valid()) {
       return events;
     }
 
     std::vector<struct kevent> rawEvents(kMaxEvents);
-    int count = kevent(backendFd_, nullptr, 0, rawEvents.data(), rawEvents.size(), nullptr);
+    timespec timeout{};
+    timespec* timeoutPtr = nullptr;
+    if (timeoutMs >= 0) {
+      timeout.tv_sec = timeoutMs / 1000;
+      timeout.tv_nsec = (timeoutMs % 1000) * 1000000;
+      timeoutPtr = &timeout;
+    }
+
+    int count = kevent(backendFd_, nullptr, 0, rawEvents.data(), rawEvents.size(), timeoutPtr);
     if (count < 0) {
       if (errno != EINTR) {
         std::cerr << "kevent wait failed: " << std::strerror(errno) << '\n';

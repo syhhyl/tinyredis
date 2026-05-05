@@ -88,11 +88,23 @@ std::chrono::system_clock::time_point fromEpochMilliseconds(int64_t milliseconds
 }  // namespace
 
 void Database::set(const std::string& key, const std::string& value) {
+  auto it = map_store_.find(key);
+  if (it != map_store_.end() && it->second.expires_at) {
+    expire_index_.erase(ExpireRecord{*it->second.expires_at, key});
+  }
+
   map_store_[key] = Entry{value, std::nullopt};
 }
 
 void Database::set(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
-  map_store_[key] = Entry{value, std::chrono::system_clock::now() + ttl};
+  auto it = map_store_.find(key);
+  if (it != map_store_.end() && it->second.expires_at) {
+    expire_index_.erase(ExpireRecord{*it->second.expires_at, key});
+  }
+
+  auto expiresAt = std::chrono::system_clock::now() + ttl;
+  map_store_[key] = Entry{value, expiresAt};
+  expire_index_.insert(ExpireRecord{expiresAt, key});
 }
 
 std::optional<std::string> Database::get(const std::string &key) {
@@ -120,7 +132,57 @@ bool Database::del(const std::string& key) {
     return false;
   }
 
-  return map_store_.erase(key) > 0;
+  auto it = map_store_.find(key);
+  if (it == map_store_.end()) {
+    return false;
+  }
+
+  eraseKey(it);
+  return true;
+}
+
+size_t Database::expireDue(size_t maxKeys, std::chrono::microseconds maxDuration) {
+  if (maxKeys == 0 || expire_index_.empty()) {
+    return 0;
+  }
+
+  auto startedAt = std::chrono::steady_clock::now();
+  auto now = std::chrono::system_clock::now();
+  size_t expired = 0;
+  while (!expire_index_.empty() && expired < maxKeys) {
+    if (std::chrono::steady_clock::now() - startedAt >= maxDuration) {
+      break;
+    }
+
+    auto first = expire_index_.begin();
+    if (first->expires_at > now) {
+      break;
+    }
+
+    auto it = map_store_.find(first->key);
+    if (it == map_store_.end()) {
+      expire_index_.erase(first);
+      continue;
+    }
+
+    if (!it->second.expires_at || *it->second.expires_at != first->expires_at) {
+      expire_index_.erase(first);
+      continue;
+    }
+
+    eraseKey(it);
+    ++expired;
+  }
+
+  return expired;
+}
+
+size_t Database::size() const {
+  return map_store_.size();
+}
+
+size_t Database::ttlSize() const {
+  return expire_index_.size();
 }
 
 bool Database::saveSnapshot(const std::string& path) {
@@ -185,6 +247,7 @@ bool Database::loadSnapshot(const std::string& path) {
   }
 
   std::unordered_map<std::string, Entry> loaded;
+  std::set<ExpireRecord> loadedExpireIndex;
   const auto now = std::chrono::system_clock::now();
   for (uint64_t i = 0; i < entryCount; ++i) {
     uint64_t keySize = 0;
@@ -221,6 +284,9 @@ bool Database::loadSnapshot(const std::string& path) {
     }
 
     loaded[key] = Entry{value, expiresAt};
+    if (expiresAt) {
+      loadedExpireIndex.insert(ExpireRecord{*expiresAt, key});
+    }
   }
 
   if (in.peek() != std::char_traits<char>::eof()) {
@@ -228,7 +294,16 @@ bool Database::loadSnapshot(const std::string& path) {
   }
 
   map_store_ = std::move(loaded);
+  expire_index_ = std::move(loadedExpireIndex);
   return true;
+}
+
+bool Database::ExpireRecord::operator<(const ExpireRecord& other) const {
+  if (expires_at != other.expires_at) {
+    return expires_at < other.expires_at;
+  }
+
+  return key < other.key;
 }
 
 bool Database::eraseIfExpired(const std::string& key) {
@@ -237,20 +312,45 @@ bool Database::eraseIfExpired(const std::string& key) {
     return false;
   }
 
-  if (std::chrono::system_clock::now() < *it->second.expires_at) {
+  if (!isExpired(it->second, std::chrono::system_clock::now())) {
     return false;
   }
 
-  map_store_.erase(it);
+  eraseKey(it);
   return true;
 }
 
+bool Database::isExpired(const Entry& entry, std::chrono::system_clock::time_point now) const {
+  return entry.expires_at && now >= *entry.expires_at;
+}
+
+void Database::eraseKey(std::unordered_map<std::string, Entry>::iterator it) {
+  if (it->second.expires_at) {
+    expire_index_.erase(ExpireRecord{*it->second.expires_at, it->first});
+  }
+
+  map_store_.erase(it);
+}
+
 void Database::eraseExpiredKeys() {
-  for (auto it = map_store_.begin(); it != map_store_.end();) {
-    if (it->second.expires_at && std::chrono::system_clock::now() >= *it->second.expires_at) {
-      it = map_store_.erase(it);
-    } else {
-      ++it;
+  auto now = std::chrono::system_clock::now();
+  while (!expire_index_.empty()) {
+    auto first = expire_index_.begin();
+    if (first->expires_at > now) {
+      break;
     }
+
+    auto it = map_store_.find(first->key);
+    if (it == map_store_.end()) {
+      expire_index_.erase(first);
+      continue;
+    }
+
+    if (!it->second.expires_at || *it->second.expires_at != first->expires_at) {
+      expire_index_.erase(first);
+      continue;
+    }
+
+    eraseKey(it);
   }
 }

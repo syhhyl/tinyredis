@@ -17,7 +17,7 @@ class EventLoopBackend {
   virtual bool addRead(int fd) = 0;
   virtual bool setWrite(int fd, bool enabled) = 0;
   virtual void remove(int fd) = 0;
-  virtual std::vector<Event> wait() = 0;
+  virtual std::vector<Event> wait(int timeoutMs) = 0;
 
  protected:
   int backendFd_ = -1;

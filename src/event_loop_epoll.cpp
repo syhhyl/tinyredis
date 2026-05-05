@@ -63,14 +63,14 @@ class EpollEventLoopBackend : public EventLoopBackend {
     applyEventChange(backendFd_, EPOLL_CTL_DEL, fd, 0);
   }
 
-  std::vector<Event> wait() override {
+  std::vector<Event> wait(int timeoutMs) override {
     std::vector<Event> events;
     if (!valid()) {
       return events;
     }
 
     std::vector<epoll_event> rawEvents(kMaxEvents);
-    int count = epoll_wait(backendFd_, rawEvents.data(), static_cast<int>(rawEvents.size()), -1);
+    int count = epoll_wait(backendFd_, rawEvents.data(), static_cast<int>(rawEvents.size()), timeoutMs);
     if (count < 0) {
       if (errno != EINTR) {
         std::cerr << "epoll_wait failed: " << std::strerror(errno) << '\n';

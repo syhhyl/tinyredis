@@ -24,7 +24,7 @@ class EventLoop {
   bool addRead(int fd);
   bool setWrite(int fd, bool enabled);
   void remove(int fd);
-  std::vector<Event> wait();
+  std::vector<Event> wait(int timeoutMs = -1);
 
  private:
   std::unique_ptr<EventLoopBackend> backend_;

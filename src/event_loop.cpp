@@ -40,9 +40,14 @@ void EventLoop::remove(int fd) {
   }
 }
 
-std::vector<Event> EventLoop::wait() {
+std::vector<Event> EventLoop::wait(int timeoutMs) {
   if (!valid()) {
     return {};
   }
-  return backend_->wait();
+
+  if (timeoutMs < 0) {
+    timeoutMs = -1;
+  }
+
+  return backend_->wait(timeoutMs);
 }

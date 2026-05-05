@@ -139,6 +139,15 @@ void testSetWriteFailsOnInvalidFd() {
   std::cout << "PASS testSetWriteFailsOnInvalidFd\n";
 }
 
+void testWaitTimeoutReturnsWithoutEvents() {
+  EventLoop loop;
+  assert(loop.valid());
+
+  std::vector<Event> events = loop.wait(10);
+  assert(events.empty());
+  std::cout << "PASS testWaitTimeoutReturnsWithoutEvents\n";
+}
+
 #if defined(__linux__)
 void testSetWriteFailsWhenFdNotRegistered() {
   EventLoop loop;
@@ -160,6 +169,7 @@ int main() {
   testSetWriteToggle();
   testRemoveStopsReadNotifications();
   testSetWriteFailsOnInvalidFd();
+  testWaitTimeoutReturnsWithoutEvents();
 #if defined(__linux__)
   testSetWriteFailsWhenFdNotRegistered();
 #endif
