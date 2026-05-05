@@ -261,6 +261,59 @@ void testExecuteDecrPreservesTtl() {
   std::cout << "PASS testExecuteDecrPreservesTtl\n";
 }
 
+void testExecuteMget() {
+  Database db;
+
+  assert(executeCommand({"set", "a", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"set", "b", "2"}, db) == "+OK\r\n");
+  assert(executeCommand({"mget", "a", "b", "missing"}, db) ==
+         "*3\r\n$1\r\n1\r\n$1\r\n2\r\n$-1\r\n");
+  std::cout << "PASS testExecuteMget\n";
+}
+
+void testExecuteMgetTreatsExpiredKeyAsMissing() {
+  Database db;
+
+  db.set("a", "1", kShortTtl);
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(executeCommand({"mget", "a", "missing"}, db) == "*2\r\n$-1\r\n$-1\r\n");
+  std::cout << "PASS testExecuteMgetTreatsExpiredKeyAsMissing\n";
+}
+
+void testExecuteMset() {
+  Database db;
+
+  assert(executeCommand({"mset", "a", "1"}, db) == "+OK\r\n");
+  assert(executeCommand({"mset", "b", "2", "c", "3"}, db) == "+OK\r\n");
+  assert(executeCommand({"mget", "a", "b", "c"}, db) ==
+         "*3\r\n$1\r\n1\r\n$1\r\n2\r\n$1\r\n3\r\n");
+  std::cout << "PASS testExecuteMset\n";
+}
+
+void testExecuteMsetClearsPreviousTtl() {
+  Database db;
+
+  db.set("a", "old", kShortTtl);
+  assert(executeCommand({"mset", "a", "new"}, db) == "+OK\r\n");
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(executeCommand({"get", "a"}, db) == "$3\r\nnew\r\n");
+  std::cout << "PASS testExecuteMsetClearsPreviousTtl\n";
+}
+
+void testExecuteMsetRejectsTooLargeArgumentsWithoutModifyingDatabase() {
+  Database db;
+  std::string key(kMaxCommandKeyLength + 1, 'k');
+  std::string value(kMaxCommandValueLength + 1, 'v');
+
+  assert(executeCommand({"set", "a", "old"}, db) == "+OK\r\n");
+  assert(executeCommand({"mset", "a", "new", key, "value"}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "a"}, db) == "$3\r\nold\r\n");
+  assert(executeCommand({"mset", "a", "new", "b", value}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"get", "a"}, db) == "$3\r\nold\r\n");
+  assert(executeCommand({"exists", "b"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteMsetRejectsTooLargeArgumentsWithoutModifyingDatabase\n";
+}
+
 void testExecuteUnknownCommand() {
   Database db;
 
@@ -302,6 +355,10 @@ void testExecuteWrongArgumentCounts() {
   assert(executeCommand({"incr", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"decr"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"decr", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"mget"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"mset"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"mset", "name"}, db) == "-ERR unknown command\r\n");
+  assert(executeCommand({"mset", "name", "value", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"expire", "name"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"expire", "name", "1", "extra"}, db) == "-ERR unknown command\r\n");
   assert(executeCommand({"ttl"}, db) == "-ERR unknown command\r\n");
@@ -371,6 +428,8 @@ void testKeyCommandsRejectTooLargeKey() {
   assert(executeCommand({"del", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"incr", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"decr", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"mget", key}, db) == "-ERR argument too large\r\n");
+  assert(executeCommand({"mset", key, "value"}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"expire", key, "1"}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"ttl", key}, db) == "-ERR argument too large\r\n");
   assert(executeCommand({"persist", key}, db) == "-ERR argument too large\r\n");
@@ -413,6 +472,11 @@ int main() {
   testExecuteDecrRejectsOverflow();
   testExecuteDecrTreatsExpiredKeyAsMissing();
   testExecuteDecrPreservesTtl();
+  testExecuteMget();
+  testExecuteMgetTreatsExpiredKeyAsMissing();
+  testExecuteMset();
+  testExecuteMsetClearsPreviousTtl();
+  testExecuteMsetRejectsTooLargeArgumentsWithoutModifyingDatabase();
   testExecuteUnknownCommand();
   testExecuteSaveWritesSnapshot();
   testExecuteSaveReportsFailure();

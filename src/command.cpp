@@ -119,6 +119,32 @@ std::string executeCommand(const std::vector<std::string>& command, Database& db
     }
     return encodeInteger(*value);
   }
+  if (name == "MGET" && command.size() >= 2) {
+    for (auto it = command.begin() + 1; it != command.end(); it++) {
+      if (isKeyTooLarge(*it)) {
+        return encodeError("argument too large");
+      }
+    }
+    std::vector<std::optional<std::string>> values;
+    values.reserve(command.size() - 1);
+    for (auto it = command.begin() + 1; it != command.end(); ++it) {
+      values.emplace_back(db.get(*it));
+    }
+    
+    return encodeBulkStringArray(values);
+  }
+  if (name == "MSET" && command.size() >= 3 && command.size() % 2 == 1) {
+    for (auto it = command.begin() + 1; it != command.end(); it += 2) {
+      if (isKeyTooLarge(*it) || isValueTooLarge(*(it+1))) {
+        return encodeError("argument too large");
+      }
+    }
+    for (auto it = command.begin() + 1; it != command.end(); it += 2) {
+      db.set(*it, *(it+1));
+    }
+
+    return encodeSimpleString("OK");
+  }
   if (name == "EXPIRE" && command.size() == 3) {
     if (isKeyTooLarge(command[1])) {
       return encodeError("argument too large");
