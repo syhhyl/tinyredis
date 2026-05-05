@@ -7,6 +7,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
@@ -27,6 +28,9 @@ constexpr int kMaxReadsPerEvent = 16;
 constexpr int kMaxPort = 65535;
 constexpr size_t kMaxOutputBufferBytes = 4 * 1024 * 1024;
 
+volatile std::sig_atomic_t gShutdownRequested = 0;
+int gShutdownPipeWriteFd = -1;
+
 struct Connection {
   int fd = -1;
   std::string input;
@@ -37,6 +41,22 @@ struct Connection {
 
 bool hasPendingOutput(const Connection& connection) {
   return connection.outputOffset < connection.output.size();
+}
+
+void handleShutdownSignal(int) {
+  int savedErrno = errno;
+  if (gShutdownRequested != 0) {
+    errno = savedErrno;
+    return;
+  }
+
+  gShutdownRequested = 1;
+  if (gShutdownPipeWriteFd >= 0) {
+    const char byte = 1;
+    ssize_t ignored = write(gShutdownPipeWriteFd, &byte, 1);
+    (void)ignored;
+  }
+  errno = savedErrno;
 }
 
 bool appendOutput(Connection& connection, const std::string& response) {
@@ -75,6 +95,20 @@ void closeConnection(EventLoop& loop, std::unordered_map<int, Connection>& conne
   loop.remove(fd);
   close(fd);
   connections.erase(fd);
+}
+
+void drainShutdownPipe(int fd) {
+  char buffer[64];
+  while (true) {
+    ssize_t n = read(fd, buffer, sizeof(buffer));
+    if (n > 0) {
+      continue;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return;
+    }
+    return;
+  }
 }
 
 void processInput(Connection& connection, Database& db, const std::string& dumpFile) {
@@ -292,8 +326,38 @@ int Server::run() {
     return 1;
   }
 
+  int shutdownPipe[2] = {-1, -1};
+  if (pipe(shutdownPipe) < 0) {
+    std::cerr << "pipe failed: " << std::strerror(errno) << '\n';
+    return 1;
+  }
+
+  if (!setNonBlocking(shutdownPipe[0]) || !setNonBlocking(shutdownPipe[1])) {
+    close(shutdownPipe[0]);
+    close(shutdownPipe[1]);
+    return 1;
+  }
+
+  gShutdownRequested = 0;
+  gShutdownPipeWriteFd = shutdownPipe[1];
+  struct sigaction action{};
+  struct sigaction previousAction{};
+  action.sa_handler = handleShutdownSignal;
+  sigemptyset(&action.sa_mask);
+  if (sigaction(SIGTERM, &action, &previousAction) < 0) {
+    std::cerr << "sigaction failed: " << std::strerror(errno) << '\n';
+    gShutdownPipeWriteFd = -1;
+    close(shutdownPipe[0]);
+    close(shutdownPipe[1]);
+    return 1;
+  }
+
   EventLoop loop;
-  if (!loop.valid() || !loop.addRead(serverFd_)) {
+  if (!loop.valid() || !loop.addRead(serverFd_) || !loop.addRead(shutdownPipe[0])) {
+    sigaction(SIGTERM, &previousAction, nullptr);
+    gShutdownPipeWriteFd = -1;
+    close(shutdownPipe[0]);
+    close(shutdownPipe[1]);
     return 1;
   }
 
@@ -301,8 +365,15 @@ int Server::run() {
 
   std::cout << "tinyredis-server listening on port " << port_ << '\n';
 
-  while (true) {
+  bool shuttingDown = false;
+  while (!shuttingDown) {
     for (const Event& event : loop.wait()) {
+      if (event.fd == shutdownPipe[0] && event.readable) {
+        drainShutdownPipe(shutdownPipe[0]);
+        shuttingDown = true;
+        break;
+      }
+
       if (event.fd == serverFd_ && event.readable) {
         while (true) {
           sockaddr_in clientAddr{};
@@ -364,5 +435,25 @@ int Server::run() {
     }
   }
 
-  return 0;
+  if (serverFd_ >= 0) {
+    loop.remove(serverFd_);
+    closeListenFd();
+  }
+
+  const bool saved = db_.saveSnapshot(dumpFile_);
+  if (!saved) {
+    std::cerr << "failed to save snapshot: " << dumpFile_ << '\n';
+  }
+
+  while (!connections.empty()) {
+    closeConnection(loop, connections, connections.begin()->first);
+  }
+
+  loop.remove(shutdownPipe[0]);
+  sigaction(SIGTERM, &previousAction, nullptr);
+  gShutdownPipeWriteFd = -1;
+  close(shutdownPipe[0]);
+  close(shutdownPipe[1]);
+
+  return saved ? 0 : 1;
 }

@@ -148,6 +148,16 @@ class ServerHarness {
 
   int connectClient() const { return connectToServer(port_); }
 
+  int stopWithSigterm() {
+    assert(pid_ > 0);
+    assert(kill(pid_, SIGTERM) == 0);
+
+    int status = 0;
+    assert(waitpid(pid_, &status, 0) == pid_);
+    pid_ = -1;
+    return status;
+  }
+
  private:
   void waitUntilReady() const {
     for (int i = 0; i < 100; ++i) {
@@ -346,6 +356,29 @@ void testServerSaveWritesSnapshot() {
   std::cout << "PASS testServerSaveWritesSnapshot\n";
 }
 
+void testServerSavesSnapshotOnSigterm() {
+  TempPath snapshot;
+  int status = 0;
+  {
+    ServerHarness harness(snapshot.path());
+    int fd = harness.connectClient();
+
+    assert(writeAll(fd, "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nhyl\r\n"));
+    assert(readExact(fd, 5) == "+OK\r\n");
+    close(fd);
+
+    status = harness.stopWithSigterm();
+  }
+
+  assert(WIFEXITED(status));
+  assert(WEXITSTATUS(status) == 0);
+
+  Database loaded;
+  assert(loaded.loadSnapshot(snapshot.path()));
+  assert(loaded.get("name") == "hyl");
+  std::cout << "PASS testServerSavesSnapshotOnSigterm\n";
+}
+
 void testServerRejectsConnectionsOverLimit() {
   ServerHarness harness;
   std::vector<int> clients;
@@ -476,6 +509,7 @@ int main() {
   testServerSharesDatabaseAcrossConnections();
   testServerLoadsSnapshotOnStartup();
   testServerSaveWritesSnapshot();
+  testServerSavesSnapshotOnSigterm();
   testServerRejectsConnectionsOverLimit();
   std::cout << "PASS all Server tests\n";
   return 0;
