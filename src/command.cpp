@@ -45,135 +45,172 @@ bool isValueTooLarge(const std::string& value) {
 
 }  // namespace
 
-std::string executeCommand(const std::vector<std::string>& command, Database& db,
-                           const std::string& dumpFile) {
+void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
+                          const std::string& dumpFile, std::string& output) {
   if (command.empty()) {
-    return encodeError("empty command");
+    appendError(output, "empty command");
+    return;
   }
 
   std::string name = toUpper(command[0]);
   if (name == "PING" && command.size() == 1) {
-    return encodeSimpleString("PONG");
+    appendSimpleString(output, "PONG");
+    return;
   }
   if (name == "SET") {
     if (command.size() == 3) {
       if (isKeyTooLarge(command[1]) || isValueTooLarge(command[2])) {
-        return encodeError("argument too large");
+        appendError(output, "argument too large");
+        return;
       }
       db.set(command[1], command[2]);
-      return encodeSimpleString("OK");
+      appendSimpleString(output, "OK");
+      return;
     }
 
     if (command.size() == 5 && toUpper(command[3]) == "EX") {
       if (isKeyTooLarge(command[1]) || isValueTooLarge(command[2])) {
-        return encodeError("argument too large");
+        appendError(output, "argument too large");
+        return;
       }
       auto seconds = parsePositiveInteger(command[4]);
       if (!seconds || *seconds > std::numeric_limits<long long>::max() / 1000) {
-        return encodeError("invalid expire time");
+        appendError(output, "invalid expire time");
+        return;
       }
 
       db.set(command[1], command[2], std::chrono::milliseconds(*seconds * 1000));
-      return encodeSimpleString("OK");
+      appendSimpleString(output, "OK");
+      return;
     }
   }
   if (name == "GET" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
     auto value = db.get(command[1]);
     if (!value) {
-      return encodeNullBulkString();
+      appendNullBulkString(output);
+      return;
     }
-    return encodeBulkString(*value);
+    appendBulkString(output, *value);
+    return;
   }
   if (name == "EXISTS" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
-    return encodeInteger(db.exists(command[1]) ? 1 : 0);
+    appendInteger(output, db.exists(command[1]) ? 1 : 0);
+    return;
   }
   if (name == "DEL" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
-    return encodeInteger(db.del(command[1]) ? 1 : 0);
+    appendInteger(output, db.del(command[1]) ? 1 : 0);
+    return;
   }
   if (name == "INCR" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
     auto value = db.incr(command[1]);
     if (!value) {
-      return encodeError("value is not an integer or out of range");
+      appendError(output, "value is not an integer or out of range");
+      return;
     }
-    return encodeInteger(*value);
+    appendInteger(output, *value);
+    return;
   }
   if (name == "DECR" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
     auto value = db.decr(command[1]);
     if (!value) {
-      return encodeError("value is not an integer or out of range");
+      appendError(output, "value is not an integer or out of range");
+      return;
     }
-    return encodeInteger(*value);
+    appendInteger(output, *value);
+    return;
   }
   if (name == "MGET" && command.size() >= 2) {
     for (auto it = command.begin() + 1; it != command.end(); it++) {
       if (isKeyTooLarge(*it)) {
-        return encodeError("argument too large");
+        appendError(output, "argument too large");
+        return;
       }
     }
-    std::vector<std::optional<std::string>> values;
-    values.reserve(command.size() - 1);
+    output.push_back('*');
+    output.append(std::to_string(command.size() - 1));
+    output.append("\r\n");
     for (auto it = command.begin() + 1; it != command.end(); ++it) {
-      values.emplace_back(db.get(*it));
+      auto value = db.get(*it);
+      if (value) {
+        appendBulkString(output, *value);
+      } else {
+        appendNullBulkString(output);
+      }
     }
-    
-    return encodeBulkStringArray(values);
+    return;
   }
   if (name == "MSET" && command.size() >= 3 && command.size() % 2 == 1) {
     for (auto it = command.begin() + 1; it != command.end(); it += 2) {
       if (isKeyTooLarge(*it) || isValueTooLarge(*(it+1))) {
-        return encodeError("argument too large");
+        appendError(output, "argument too large");
+        return;
       }
     }
     for (auto it = command.begin() + 1; it != command.end(); it += 2) {
       db.set(*it, *(it+1));
     }
 
-    return encodeSimpleString("OK");
+    appendSimpleString(output, "OK");
+    return;
   }
   if (name == "EXPIRE" && command.size() == 3) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
     auto seconds = parsePositiveInteger(command[2]);
     if (!seconds || *seconds > std::numeric_limits<long long>::max() / 1000) {
-      return encodeError("invalid expire time");
+      appendError(output, "invalid expire time");
+      return;
     }
 
-    return encodeInteger(db.expire(command[1], std::chrono::milliseconds(*seconds * 1000)) ? 1 : 0);
+    appendInteger(output, db.expire(command[1], std::chrono::milliseconds(*seconds * 1000)) ? 1 : 0);
+    return;
   }
   if (name == "TTL" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
-    return encodeInteger(db.ttl(command[1]));
+    appendInteger(output, db.ttl(command[1]));
+    return;
   }
   if (name == "PERSIST" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
-      return encodeError("argument too large");
+      appendError(output, "argument too large");
+      return;
     }
-    return encodeInteger(db.persist(command[1]) ? 1 : 0);
+    appendInteger(output, db.persist(command[1]) ? 1 : 0);
+    return;
   }
   if (name == "SAVE" && command.size() == 1) {
     if (!db.saveSnapshot(dumpFile)) {
-      return encodeError("save failed");
+      appendError(output, "save failed");
+      return;
     }
-    return encodeSimpleString("OK");
+    appendSimpleString(output, "OK");
+    return;
   }
 
-  return encodeError("unknown command");
+  appendError(output, "unknown command");
 }

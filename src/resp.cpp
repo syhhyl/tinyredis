@@ -105,30 +105,32 @@ ParseResult parseRespCommand(std::string* input, std::vector<std::string>* comma
   return ParseResult::Complete;
 }
 
-std::string encodeSimpleString(const std::string& value) {
-  return "+" + value + "\r\n";
+void appendSimpleString(std::string& output, std::string_view value) {
+  output.push_back('+');
+  output.append(value.data(), value.size());
+  output.append("\r\n");
 }
 
-std::string encodeError(const std::string& message) {
-  return "-ERR " + message + "\r\n";
+void appendError(std::string& output, std::string_view message) {
+  output.append("-ERR ");
+  output.append(message.data(), message.size());
+  output.append("\r\n");
 }
 
-std::string encodeInteger(const long long value) {
-  return ":" + std::to_string(value) + "\r\n";
+void appendInteger(std::string& output, long long value) {
+  output.push_back(':');
+  output.append(std::to_string(value));
+  output.append("\r\n");
 }
 
-std::string encodeBulkString(const std::string& value) {
-  return "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n";
+void appendBulkString(std::string& output, std::string_view value) {
+  output.push_back('$');
+  output.append(std::to_string(value.size()));
+  output.append("\r\n");
+  output.append(value.data(), value.size());
+  output.append("\r\n");
 }
 
-std::string encodeNullBulkString() {
-  return "$-1\r\n";
-}
-
-std::string encodeBulkStringArray(const std::vector<std::optional<std::string>>& values) {
-  std::string output = "*" + std::to_string(values.size()) + "\r\n";
-  for (const auto& value : values) {
-    output += value ? encodeBulkString(*value) : encodeNullBulkString();
-  }
-  return output;
+void appendNullBulkString(std::string& output) {
+  output.append("$-1\r\n");
 }

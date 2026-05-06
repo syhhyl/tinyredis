@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstddef>
-#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 constexpr size_t kMaxRespArrayLength = 1024;
@@ -18,9 +18,8 @@ enum class ParseResult {
 
 ParseResult parseRespCommand(std::string *input, std::vector<std::string> *command);
 
-std::string encodeSimpleString(const std::string& value);
-std::string encodeError(const std::string& message);
-std::string encodeInteger(const long long value);
-std::string encodeBulkString(const std::string& value);
-std::string encodeNullBulkString();
-std::string encodeBulkStringArray(const std::vector<std::optional<std::string>>& values);
+void appendSimpleString(std::string& output, std::string_view value);
+void appendError(std::string& output, std::string_view message);
+void appendInteger(std::string& output, long long value);
+void appendBulkString(std::string& output, std::string_view value);
+void appendNullBulkString(std::string& output);

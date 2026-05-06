@@ -63,19 +63,20 @@ void handleShutdownSignal(int) {
   errno = savedErrno;
 }
 
-bool appendOutput(Connection& connection, const std::string& response) {
+template <typename Append>
+bool appendResponse(Connection& connection, Append append) {
   if (connection.closeAfterWrite) {
     return false;
   }
-  if (response.size() > kMaxOutputBufferBytes ||
-      connection.output.size() > kMaxOutputBufferBytes - response.size()) {
+
+  append(connection.output);
+  if (connection.output.size() > kMaxOutputBufferBytes) {
     connection.output.clear();
     connection.outputOffset = 0;
     connection.closeAfterWrite = true;
     return false;
   }
 
-  connection.output += response;
   return true;
 }
 
@@ -123,17 +124,23 @@ void processInput(Connection& connection, Database& db, const std::string& dumpF
       return;
     }
     if (result == ParseResult::TooLarge) {
-      appendOutput(connection, encodeError("request too large"));
+      appendResponse(connection, [](std::string& output) {
+        appendError(output, "request too large");
+      });
       connection.closeAfterWrite = true;
       return;
     }
     if (result == ParseResult::Error) {
-      appendOutput(connection, encodeError("invalid protocol"));
+      appendResponse(connection, [](std::string& output) {
+        appendError(output, "invalid protocol");
+      });
       connection.closeAfterWrite = true;
       return;
     }
 
-    if (!appendOutput(connection, executeCommand(command, db, dumpFile))) {
+    if (!appendResponse(connection, [&](std::string& output) {
+          appendExecuteCommand(command, db, dumpFile, output);
+        })) {
       return;
     }
   }
@@ -154,7 +161,9 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
       Connection& connection = it->second;
       connection.input.append(buffer, static_cast<size_t>(n));
       if (connection.input.size() > kMaxRespRequestBytes) {
-        appendOutput(connection, encodeError("request too large"));
+        appendResponse(connection, [](std::string& output) {
+          appendError(output, "request too large");
+        });
         connection.closeAfterWrite = true;
         break;
       }

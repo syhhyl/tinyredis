@@ -137,15 +137,16 @@ void testParseAllowsMaxRequestBytes() {
   std::cout << "PASS testParseAllowsMaxRequestBytes\n";
 }
 
-void testEncodeRespValues() {
-  assert(encodeSimpleString("OK") == "+OK\r\n");
-  assert(encodeError("unknown command") == "-ERR unknown command\r\n");
-  assert(encodeInteger(1) == ":1\r\n");
-  assert(encodeBulkString("hyl") == "$3\r\nhyl\r\n");
-  assert(encodeNullBulkString() == "$-1\r\n");
-  assert(encodeBulkStringArray({std::string("a"), std::nullopt, std::string("b")}) ==
-         "*3\r\n$1\r\na\r\n$-1\r\n$1\r\nb\r\n");
-  std::cout << "PASS testEncodeRespValues\n";
+void testAppendRespValues() {
+  std::string output;
+  appendSimpleString(output, "OK");
+  appendError(output, "unknown command");
+  appendInteger(output, 1);
+  appendBulkString(output, "hyl");
+  appendNullBulkString(output);
+
+  assert(output == "+OK\r\n-ERR unknown command\r\n:1\r\n$3\r\nhyl\r\n$-1\r\n");
+  std::cout << "PASS testAppendRespValues\n";
 }
 
 }  // namespace
@@ -162,7 +163,7 @@ int main() {
   testParseAllowsMaxArrayLength();
   testParseAllowsMaxBulkLength();
   testParseAllowsMaxRequestBytes();
-  testEncodeRespValues();
+  testAppendRespValues();
   std::cout << "PASS all RESP tests\n";
   return 0;
 }
