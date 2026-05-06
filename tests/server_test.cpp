@@ -141,8 +141,13 @@ class ServerHarness {
 
   ~ServerHarness() {
     if (pid_ > 0) {
-      kill(pid_, SIGTERM);
-      waitpid(pid_, nullptr, 0);
+      int rc = kill(pid_, SIGTERM);
+      assert(rc == 0);
+      int status = 0;
+      do {
+        rc = waitpid(pid_, &status, 0);
+      } while (rc < 0 && errno == EINTR);
+      assert(rc == pid_);
     }
   }
 
@@ -150,10 +155,14 @@ class ServerHarness {
 
   int stopWithSigterm() {
     assert(pid_ > 0);
-    assert(kill(pid_, SIGTERM) == 0);
+    int rc = kill(pid_, SIGTERM);
+    assert(rc == 0);
 
     int status = 0;
-    assert(waitpid(pid_, &status, 0) == pid_);
+    do {
+      rc = waitpid(pid_, &status, 0);
+    } while (rc < 0 && errno == EINTR);
+    assert(rc == pid_);
     pid_ = -1;
     return status;
   }
