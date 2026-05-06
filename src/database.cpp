@@ -124,7 +124,7 @@ void Database::set(const std::string& key, const std::string& value, std::chrono
   expire_index_.insert(ExpireRecord{expiresAt, key});
 }
 
-std::optional<std::string> Database::get(const std::string &key) {
+std::optional<std::string_view> Database::get(const std::string &key) {
   if (eraseIfExpired(key)) {
     return std::nullopt;
   }

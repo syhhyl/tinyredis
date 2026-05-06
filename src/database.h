@@ -3,6 +3,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 
@@ -13,7 +14,7 @@ public:
   
   void set(const std::string &key, const std::string &value);
   void set(const std::string &key, const std::string &value, std::chrono::milliseconds ttl);
-  std::optional<std::string> get(const std::string &key);
+  std::optional<std::string_view> get(const std::string &key);
   bool exists(const std::string &key);
   bool del(const std::string &key);
   std::optional<long long> incr(const std::string &key);
