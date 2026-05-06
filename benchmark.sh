@@ -4,7 +4,7 @@ set -eu
 REDIS_BENCHMARK_BIN=${REDIS_BENCHMARK_BIN:-redis-benchmark}
 OFFICIAL_REDIS_SERVER_BIN=${OFFICIAL_REDIS_SERVER_BIN:-redis-server}
 TINYREDIS_SERVER_BIN=${TINYREDIS_SERVER_BIN:-./build/tinyredis-server}
-REDIS_BENCHMARK_TESTS=${REDIS_BENCHMARK_TESTS:-ping_mbulk,set,get}
+REDIS_BENCHMARK_TESTS=${REDIS_BENCHMARK_TESTS:-ping_mbulk,set,get,incr,mset}
 TINYREDIS_HOST=${TINYREDIS_HOST:-127.0.0.1}
 TINYREDIS_PORT=${TINYREDIS_PORT:-6379}
 OFFICIAL_REDIS_HOST=${OFFICIAL_REDIS_HOST:-127.0.0.1}
@@ -37,7 +37,7 @@ Environment:
   REDIS_BENCHMARK_BIN     default: redis-benchmark
   OFFICIAL_REDIS_SERVER_BIN default: redis-server
   TINYREDIS_SERVER_BIN    default: ./build/tinyredis-server
-  REDIS_BENCHMARK_TESTS   default: ping_mbulk,set,get
+  REDIS_BENCHMARK_TESTS   default: ping_mbulk,set,get,incr,mset
   TINYREDIS_OUTPUT        default: tinyredis-benchmark
   OFFICIAL_REDIS_OUTPUT   default: redis-benchmark
   DEFAULT_BENCHMARK_PROFILES multiline redis-benchmark options
@@ -107,6 +107,42 @@ run_benchmark_case() {
   } >> "$output" 2>&1
 }
 
+run_command_benchmark_case() {
+  name=$1
+  host=$2
+  port=$3
+  output=$4
+  label=$5
+  shift 5
+
+  echo "== $name ${host}:${port} $label =="
+  {
+    echo "## $label"
+    echo
+    "$REDIS_BENCHMARK_BIN" \
+      -h "$host" \
+      -p "$port" \
+      "$@"
+    echo
+  } >> "$output" 2>&1
+}
+
+run_supported_command_benchmark_cases() {
+  name=$1
+  host=$2
+  port=$3
+  output=$4
+  shift 4
+
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "DECR" "$@" decr tinyredis:counter
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "MGET" "$@" mget tinyredis:counter tinyredis:counter
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "EXISTS" "$@" exists tinyredis:counter
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "EXPIRE" "$@" expire tinyredis:counter 60
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "TTL" "$@" ttl tinyredis:counter
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "PERSIST" "$@" persist tinyredis:counter
+  run_command_benchmark_case "$name" "$host" "$port" "$output" "DEL" "$@" del tinyredis:counter
+}
+
 run_benchmarks() {
   name=$1
   host=$2
@@ -117,11 +153,13 @@ run_benchmarks() {
   write_report_header "$name" "$host" "$port" "$output"
   if [ "$BENCHMARK_ARGS_PROVIDED" -eq 1 ]; then
     run_benchmark_case "$name" "$host" "$port" "$output" "$@"
+    run_supported_command_benchmark_cases "$name" "$host" "$port" "$output" "$@"
   else
     while IFS= read -r profile; do
       [ -n "$profile" ] || continue
       set -- $profile
       run_benchmark_case "$name" "$host" "$port" "$output" "$@"
+      run_supported_command_benchmark_cases "$name" "$host" "$port" "$output" "$@"
     done < "$benchmark_profiles"
   fi
   echo "wrote: $output"
