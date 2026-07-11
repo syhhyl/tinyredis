@@ -82,11 +82,18 @@ void testExecuteSetGetExistsDel() {
 
 void testExecuteExistsWithMultipleKeys() {
   Database db;
+  std::string tooLargeKey(kMaxCommandKeyLength + 1, 'k');
 
   assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
   assert(runCommand({"set", "age", "21"}, db) == "+OK\r\n");
   assert(runCommand({"exists", "name", "age", "missing"}, db) == ":2\r\n");
   assert(runCommand({"exists", "missing", "other"}, db) == ":0\r\n");
+  assert(runCommand({"exists", "name", "name", "missing"}, db) == ":2\r\n");
+  assert(runCommand({"exists", "name", tooLargeKey}, db) == "-ERR argument too large\r\n");
+
+  db.set("expired", "value", kShortTtl);
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(runCommand({"exists", "name", "expired", "missing"}, db) == ":1\r\n");
   std::cout << "PASS testExecuteExistsWithMultipleKeys\n";
 }
 
