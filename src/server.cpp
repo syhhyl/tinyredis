@@ -177,7 +177,7 @@ void handleClientRead(EventLoop& loop, std::unordered_map<int, Connection>& conn
       break;
     }
 
-    std::cerr << "read failed: " << std::strerror(errno) << '\n';
+    std::cerr << "read failed: this " << std::strerror(errno) << '\n';
     closeConnection(loop, connections, fd);
     return;
   }

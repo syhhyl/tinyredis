@@ -53,8 +53,11 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
   }
 
   std::string name = toUpper(command[0]);
-  if (name == "PING" && command.size() == 1) {
-    appendSimpleString(output, "PONG");
+  if (name == "PING") {
+    if (command.size() == 1) 
+      appendSimpleString(output, "PONG");
+    else
+      appendBulkString(output, command[1]);
     return;
   }
   if (name == "SET") {
