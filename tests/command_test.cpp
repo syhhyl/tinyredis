@@ -46,6 +46,7 @@ void testExecutePing() {
   Database db;
 
   assert(runCommand({"ping"}, db) == "+PONG\r\n");
+  assert(runCommand({"ping", "hello"}, db) == "$5\r\nhello\r\n");
   std::cout << "PASS testExecutePing\n";
 }
 
@@ -351,7 +352,6 @@ void testExecuteSaveReportsFailure() {
 void testExecuteWrongArgumentCounts() {
   Database db;
 
-  assert(runCommand({"ping", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"get"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"get", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"exists"}, db) == "-ERR unknown command\r\n");
