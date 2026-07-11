@@ -113,12 +113,21 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
     appendInteger(output, count);
     return;
   }
-  if (name == "DEL" && command.size() == 2) {
-    if (isKeyTooLarge(command[1])) {
-      appendError(output, "argument too large");
-      return;
+  if (name == "DEL" && command.size() >= 2) {
+    for (auto it = command.begin() + 1; it != command.end(); ++it) {
+      if (isKeyTooLarge(*it)) {
+        appendError(output, "argument too large");
+        return;
+      }
     }
-    appendInteger(output, db.del(command[1]) ? 1 : 0);
+
+    int count = 0;
+    for (auto it = command.begin() + 1; it != command.end(); ++it) {
+      if (db.del(*it)) {
+        ++count;
+      }
+    }
+    appendInteger(output, count);
     return;
   }
   if (name == "INCR" && command.size() == 2) {

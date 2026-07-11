@@ -80,6 +80,46 @@ void testExecuteSetGetExistsDel() {
   std::cout << "PASS testExecuteSetGetExistsDel\n";
 }
 
+void testExecuteDelWithMultipleKeys() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(runCommand({"set", "age", "21"}, db) == "+OK\r\n");
+  assert(runCommand({"del", "name", "age", "missing"}, db) == ":2\r\n");
+  assert(runCommand({"exists", "name", "age"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteDelWithMultipleKeys\n";
+}
+
+void testExecuteDelWithDuplicateKeys() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(runCommand({"del", "name", "name", "missing"}, db) == ":1\r\n");
+  assert(runCommand({"exists", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteDelWithDuplicateKeys\n";
+}
+
+void testExecuteDelWithExpiredKey() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  db.set("expired", "value", kShortTtl);
+  std::this_thread::sleep_for(kShortTtlWait);
+  assert(runCommand({"del", "name", "expired", "missing"}, db) == ":1\r\n");
+  assert(runCommand({"exists", "name", "expired"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteDelWithExpiredKey\n";
+}
+
+void testExecuteDelRejectsTooLargeKeyWithoutModifyingDatabase() {
+  Database db;
+  std::string key(kMaxCommandKeyLength + 1, 'k');
+
+  assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(runCommand({"del", "name", key}, db) == "-ERR argument too large\r\n");
+  assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+  std::cout << "PASS testExecuteDelRejectsTooLargeKeyWithoutModifyingDatabase\n";
+}
+
 void testExecuteExistsWithMultipleKeys() {
   Database db;
   std::string tooLargeKey(kMaxCommandKeyLength + 1, 'k');
@@ -373,7 +413,6 @@ void testExecuteWrongArgumentCounts() {
   assert(runCommand({"get", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"exists"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"del"}, db) == "-ERR unknown command\r\n");
-  assert(runCommand({"del", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"incr"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"incr", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"decr"}, db) == "-ERR unknown command\r\n");
@@ -479,6 +518,10 @@ int main() {
   testExecuteEmptyCommand();
   testExecuteCommandNameIsCaseInsensitive();
   testExecuteSetGetExistsDel();
+  testExecuteDelWithMultipleKeys();
+  testExecuteDelWithDuplicateKeys();
+  testExecuteDelWithExpiredKey();
+  testExecuteDelRejectsTooLargeKeyWithoutModifyingDatabase();
   testExecuteExistsWithMultipleKeys();
   testExecuteSetWithExpiration();
   testExecuteSetWithInvalidExpiration();
