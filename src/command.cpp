@@ -56,8 +56,10 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
   if (name == "PING") {
     if (command.size() == 1) 
       appendSimpleString(output, "PONG");
-    else
+    else if (command.size() == 2)
       appendBulkString(output, command[1]);
+    else
+      appendError(output, "wrong arity");
     return;
   }
   if (name == "SET") {
