@@ -80,6 +80,16 @@ void testExecuteSetGetExistsDel() {
   std::cout << "PASS testExecuteSetGetExistsDel\n";
 }
 
+void testExecuteExistsWithMultipleKeys() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
+  assert(runCommand({"set", "age", "21"}, db) == "+OK\r\n");
+  assert(runCommand({"exists", "name", "age", "missing"}, db) == ":2\r\n");
+  assert(runCommand({"exists", "missing", "other"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteExistsWithMultipleKeys\n";
+}
+
 void testExecuteSetWithExpiration() {
   Database db;
 
@@ -355,7 +365,6 @@ void testExecuteWrongArgumentCounts() {
   assert(runCommand({"get"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"get", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"exists"}, db) == "-ERR unknown command\r\n");
-  assert(runCommand({"exists", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"del"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"del", "name", "extra"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"incr"}, db) == "-ERR unknown command\r\n");
@@ -463,6 +472,7 @@ int main() {
   testExecuteEmptyCommand();
   testExecuteCommandNameIsCaseInsensitive();
   testExecuteSetGetExistsDel();
+  testExecuteExistsWithMultipleKeys();
   testExecuteSetWithExpiration();
   testExecuteSetWithInvalidExpiration();
   testExecuteSetClearsPreviousExpiration();
