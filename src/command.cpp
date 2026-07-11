@@ -100,12 +100,17 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
     appendBulkString(output, *value);
     return;
   }
-  if (name == "EXISTS" && command.size() == 2) {
-    if (isKeyTooLarge(command[1])) {
-      appendError(output, "argument too large");
-      return;
+  if (name == "EXISTS" && command.size() >= 2) {
+    int count = 0;
+    for (auto it = command.begin() + 1; it != command.end(); ++it) {
+      if (isKeyTooLarge(*it)) {
+        appendError(output, "argument too large");
+        return;
+      }
+      if (db.exists(*it))
+        ++count;
     }
-    appendInteger(output, db.exists(command[1]) ? 1 : 0);
+    appendInteger(output, count);
     return;
   }
   if (name == "DEL" && command.size() == 2) {
