@@ -482,8 +482,8 @@ void testExecuteSaveReportsFailure() {
 void testExecuteWrongArgumentCounts() {
   Database db;
 
-  assert(runCommand({"get"}, db) == "-ERR unknown command\r\n");
-  assert(runCommand({"get", "name", "extra"}, db) == "-ERR unknown command\r\n");
+  assert(runCommand({"get"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"get", "name", "extra"}, db) == "-ERR wrong number of arguments\r\n");
   assert(runCommand({"exists"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"del"}, db) == "-ERR unknown command\r\n");
   assert(runCommand({"incr"}, db) == "-ERR unknown command\r\n");
@@ -584,6 +584,26 @@ void testAllowsMaxKeyAndValueLength() {
   std::cout << "PASS testAllowsMaxKeyAndValueLength\n";
 }
 
+void testExecuteGetTreatsExpiredKeyAsMissing() {
+  Database db;
+
+  db.set("name", "hyl", kShortTtl);
+  assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
+  assert(runCommand({"get", "name"}, db) == "$-1\r\n");
+  std::cout << "PASS testExecuteGetTreatsExpiredKeyAsMissing\n";
+}
+
+void testExecuteGetWithEmptyValue() {
+  Database db;
+
+  assert(runCommand({"set", "key", ""}, db) == "+OK\r\n");
+  assert(runCommand({"get", "key"}, db) == "$0\r\n\r\n");
+  assert(runCommand({"exists", "key"}, db) == ":1\r\n");
+  std::cout << "PASS testExecuteGetWithEmptyValue\n";
+}
+
 }  // namespace
 
 int main() {
@@ -634,6 +654,8 @@ int main() {
   testSetWithExpirationRejectsTooLargeArgumentsWithoutModifyingDatabase();
   testKeyCommandsRejectTooLargeKey();
   testAllowsMaxKeyAndValueLength();
+  testExecuteGetTreatsExpiredKeyAsMissing();
+  testExecuteGetWithEmptyValue();
   std::cout << "PASS all Command tests\n";
   return 0;
 }
