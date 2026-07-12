@@ -92,17 +92,21 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
     appendError(output, "wrong number of arguments");
     return;
   }
-  if (name == "GET" && command.size() == 2) {
-    if (isKeyTooLarge(command[1])) {
-      appendError(output, "argument too large");
+  if (name == "GET") {
+    if (command.size() == 2) {
+      if (isKeyTooLarge(command[1])) {
+        appendError(output, "argument too large");
+        return;
+      }
+      auto value = db.get(command[1]);
+      if (!value) {
+        appendNullBulkString(output);
+        return;
+      }
+      appendBulkString(output, *value);
       return;
     }
-    auto value = db.get(command[1]);
-    if (!value) {
-      appendNullBulkString(output);
-      return;
-    }
-    appendBulkString(output, *value);
+    appendError(output, "wrong number of arguments");
     return;
   }
   if (name == "EXISTS" && command.size() >= 2) {
