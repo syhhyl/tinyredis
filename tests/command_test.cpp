@@ -13,8 +13,17 @@ namespace {
 
 constexpr size_t kMaxCommandKeyLength = 1024;
 constexpr size_t kMaxCommandValueLength = 1024 * 1024;
-constexpr std::chrono::milliseconds kShortTtl(500);
-constexpr std::chrono::milliseconds kShortTtlWait(600);
+constexpr std::chrono::milliseconds kShortTtl(50);
+
+template <typename Func>
+bool waitFor(std::chrono::milliseconds timeout, Func&& predicate) {
+  auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return predicate();
+}
 
 class TempPath {
  public:
@@ -104,7 +113,7 @@ void testExecuteDelWithExpiredKey() {
 
   assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
   db.set("expired", "value", kShortTtl);
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("expired"); }));
   assert(runCommand({"del", "name", "expired", "missing"}, db) == ":1\r\n");
   assert(runCommand({"exists", "name", "expired"}, db) == ":0\r\n");
   std::cout << "PASS testExecuteDelWithExpiredKey\n";
@@ -132,7 +141,7 @@ void testExecuteExistsWithMultipleKeys() {
   assert(runCommand({"exists", "name", tooLargeKey}, db) == "-ERR argument too large\r\n");
 
   db.set("expired", "value", kShortTtl);
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("expired"); }));
   assert(runCommand({"exists", "name", "expired", "missing"}, db) == ":1\r\n");
   std::cout << "PASS testExecuteExistsWithMultipleKeys\n";
 }
@@ -143,7 +152,7 @@ void testExecuteSetWithExpiration() {
   db.set("name", "hyl", kShortTtl);
   assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
 
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
   assert(runCommand({"get", "name"}, db) == "$-1\r\n");
   assert(runCommand({"exists", "name"}, db) == ":0\r\n");
   assert(runCommand({"del", "name"}, db) == ":0\r\n");
@@ -155,7 +164,7 @@ void testExecuteSetWithInvalidExpiration() {
 
   assert(runCommand({"set", "name", "hyl", "ex", "0"}, db) == "-ERR invalid expire time\r\n");
   assert(runCommand({"set", "name", "hyl", "ex", "abc"}, db) == "-ERR invalid expire time\r\n");
-  assert(runCommand({"set", "name", "hyl", "px", "1"}, db) == "-ERR unknown command\r\n");
+  assert(runCommand({"set", "name", "hyl", "px", "1"}, db) == "-ERR wrong number of arguments\r\n");
   assert(runCommand({"exists", "name"}, db) == ":0\r\n");
   std::cout << "PASS testExecuteSetWithInvalidExpiration\n";
 }
@@ -166,9 +175,73 @@ void testExecuteSetClearsPreviousExpiration() {
   db.set("name", "hyl", kShortTtl);
   assert(runCommand({"set", "name", "redis"}, db) == "+OK\r\n");
 
-  std::this_thread::sleep_for(kShortTtlWait);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   assert(runCommand({"get", "name"}, db) == "$5\r\nredis\r\n");
   std::cout << "PASS testExecuteSetClearsPreviousExpiration\n";
+}
+
+void testExecuteSetOverwritesValue() {
+  Database db;
+
+  assert(runCommand({"set", "key", "old"}, db) == "+OK\r\n");
+  assert(runCommand({"set", "key", "new"}, db) == "+OK\r\n");
+  assert(runCommand({"get", "key"}, db) == "$3\r\nnew\r\n");
+  std::cout << "PASS testExecuteSetOverwritesValue\n";
+}
+
+void testExecuteSetWithExExpiration() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl", "ex", "1"}, db) == "+OK\r\n");
+  assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
+
+  assert(waitFor(std::chrono::milliseconds(1200), [&] {
+    return runCommand({"get", "name"}, db) == "$-1\r\n";
+  }));
+  assert(runCommand({"exists", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteSetWithExExpiration\n";
+}
+
+void testExecuteSetWithExUpdatesTtlOnOverwrite() {
+  Database db;
+
+  assert(runCommand({"set", "key", "old", "ex", "10"}, db) == "+OK\r\n");
+  assert(runCommand({"set", "key", "new", "ex", "100"}, db) == "+OK\r\n");
+
+  std::string ttl = runCommand({"ttl", "key"}, db);
+  assert(ttl.size() > 3); // :<number>\r\n, number could be 2-3 digits
+  assert(ttl != ":-2\r\n" && ttl != ":-1\r\n");
+  assert(runCommand({"get", "key"}, db) == "$3\r\nnew\r\n");
+  std::cout << "PASS testExecuteSetWithExUpdatesTtlOnOverwrite\n";
+}
+
+void testExecuteSetWithExNegative() {
+  Database db;
+
+  assert(runCommand({"set", "name", "hyl", "ex", "-1"}, db) == "-ERR invalid expire time\r\n");
+  assert(runCommand({"exists", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteSetWithExNegative\n";
+}
+
+void testExecuteSetWithExOverflow() {
+  Database db;
+  std::string huge = std::to_string(std::numeric_limits<long long>::max() / 1000 + 1);
+
+  assert(runCommand({"set", "name", "hyl", "ex", huge}, db) == "-ERR invalid expire time\r\n");
+  assert(runCommand({"exists", "name"}, db) == ":0\r\n");
+  std::cout << "PASS testExecuteSetWithExOverflow\n";
+}
+
+void testExecuteSetWrongArgumentCounts() {
+  Database db;
+
+  assert(runCommand({"set"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"set", "key"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"set", "key", "val", "extra"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"set", "key", "val", "ex"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"set", "key", "val", "ex", "1", "extra"}, db) == "-ERR wrong number of arguments\r\n");
+  assert(runCommand({"set", "key", "val", "nx"}, db) == "-ERR wrong number of arguments\r\n");
+  std::cout << "PASS testExecuteSetWrongArgumentCounts\n";
 }
 
 void testExecuteExpire() {
@@ -181,7 +254,7 @@ void testExecuteExpire() {
   assert(runCommand({"expire", "name", "abc"}, db) == "-ERR invalid expire time\r\n");
 
   assert(db.expire("name", kShortTtl));
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
   assert(runCommand({"get", "name"}, db) == "$-1\r\n");
   std::cout << "PASS testExecuteExpire\n";
 }
@@ -198,7 +271,7 @@ void testExecuteTtl() {
   assert(ttl == ":0\r\n" || ttl == ":1\r\n");
 
   assert(db.expire("name", kShortTtl));
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
   assert(runCommand({"ttl", "name"}, db) == ":-2\r\n");
   std::cout << "PASS testExecuteTtl\n";
 }
@@ -213,7 +286,7 @@ void testExecutePersist() {
   assert(runCommand({"persist", "name"}, db) == ":1\r\n");
   assert(runCommand({"ttl", "name"}, db) == ":-1\r\n");
 
-  std::this_thread::sleep_for(kShortTtlWait);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
   std::cout << "PASS testExecutePersist\n";
 }
@@ -255,7 +328,7 @@ void testExecuteIncrTreatsExpiredKeyAsMissing() {
   Database db;
 
   db.set("count", "10", kShortTtl);
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("count"); }));
   assert(runCommand({"incr", "count"}, db) == ":1\r\n");
   assert(runCommand({"get", "count"}, db) == "$1\r\n1\r\n");
   std::cout << "PASS testExecuteIncrTreatsExpiredKeyAsMissing\n";
@@ -308,7 +381,7 @@ void testExecuteDecrTreatsExpiredKeyAsMissing() {
   Database db;
 
   db.set("count", "10", kShortTtl);
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("count"); }));
   assert(runCommand({"decr", "count"}, db) == ":-1\r\n");
   assert(runCommand({"get", "count"}, db) == "$2\r\n-1\r\n");
   std::cout << "PASS testExecuteDecrTreatsExpiredKeyAsMissing\n";
@@ -340,7 +413,7 @@ void testExecuteMgetTreatsExpiredKeyAsMissing() {
   Database db;
 
   db.set("a", "1", kShortTtl);
-  std::this_thread::sleep_for(kShortTtlWait);
+  assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("a"); }));
   assert(runCommand({"mget", "a", "missing"}, db) == "*2\r\n$-1\r\n$-1\r\n");
   std::cout << "PASS testExecuteMgetTreatsExpiredKeyAsMissing\n";
 }
@@ -360,7 +433,7 @@ void testExecuteMsetClearsPreviousTtl() {
 
   db.set("a", "old", kShortTtl);
   assert(runCommand({"mset", "a", "new"}, db) == "+OK\r\n");
-  std::this_thread::sleep_for(kShortTtlWait);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   assert(runCommand({"get", "a"}, db) == "$3\r\nnew\r\n");
   std::cout << "PASS testExecuteMsetClearsPreviousTtl\n";
 }
@@ -434,7 +507,7 @@ void testInvalidCommandDoesNotModifyExistingValue() {
   Database db;
 
   assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
-  assert(runCommand({"set", "name"}, db) == "-ERR unknown command\r\n");
+  assert(runCommand({"set", "name"}, db) == "-ERR wrong number of arguments\r\n");
   assert(runCommand({"get", "name"}, db) == "$3\r\nhyl\r\n");
   std::cout << "PASS testInvalidCommandDoesNotModifyExistingValue\n";
 }
@@ -442,7 +515,7 @@ void testInvalidCommandDoesNotModifyExistingValue() {
 void testInvalidSetDoesNotCreateValue() {
   Database db;
 
-  assert(runCommand({"set", "name"}, db) == "-ERR unknown command\r\n");
+  assert(runCommand({"set", "name"}, db) == "-ERR wrong number of arguments\r\n");
   assert(runCommand({"exists", "name"}, db) == ":0\r\n");
   std::cout << "PASS testInvalidSetDoesNotCreateValue\n";
 }
@@ -526,6 +599,12 @@ int main() {
   testExecuteSetWithExpiration();
   testExecuteSetWithInvalidExpiration();
   testExecuteSetClearsPreviousExpiration();
+  testExecuteSetOverwritesValue();
+  testExecuteSetWithExExpiration();
+  testExecuteSetWithExUpdatesTtlOnOverwrite();
+  testExecuteSetWithExNegative();
+  testExecuteSetWithExOverflow();
+  testExecuteSetWrongArgumentCounts();
   testExecuteExpire();
   testExecuteTtl();
   testExecutePersist();

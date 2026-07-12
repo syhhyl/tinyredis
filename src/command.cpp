@@ -88,6 +88,9 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
       appendSimpleString(output, "OK");
       return;
     }
+    
+    appendError(output, "wrong number of arguments");
+    return;
   }
   if (name == "GET" && command.size() == 2) {
     if (isKeyTooLarge(command[1])) {
