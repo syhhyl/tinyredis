@@ -1,3 +1,5 @@
+#include "test_config.h"
+
 #include "resp.h"
 
 #include <cassert>

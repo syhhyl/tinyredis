@@ -28,7 +28,9 @@ add_executable(tinyredis-cli
   src/tinyredis-cli.cpp
 )
 
-if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
+option(BUILD_TESTING "Build tests" OFF)
+
+if(BUILD_TESTING)
   enable_testing()
 
   add_executable(tinyredis-resp-test
@@ -83,6 +85,13 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
     message(FATAL_ERROR "EventLoop backend is not implemented for this platform")
   endif()
 
+  target_compile_options(tinyredis-resp-test PRIVATE -UNDEBUG)
+  target_compile_options(tinyredis-database-test PRIVATE -UNDEBUG)
+  target_compile_options(tinyredis-command-test PRIVATE -UNDEBUG)
+  target_compile_options(tinyredis-server-test PRIVATE -UNDEBUG)
+  target_compile_options(tinyredis-cli-test PRIVATE -UNDEBUG)
+  target_compile_options(tinyredis-event-loop-test PRIVATE -UNDEBUG)
+
   target_include_directories(tinyredis-resp-test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
@@ -113,4 +122,14 @@ if(DEFINED ENV{TINYREDIS_BUILD_TESTS} AND "$ENV{TINYREDIS_BUILD_TESTS}")
   add_test(NAME tinyredis-server-test COMMAND tinyredis-server-test)
   add_test(NAME tinyredis-cli-test COMMAND tinyredis-cli-test)
   add_test(NAME tinyredis-event-loop-test COMMAND tinyredis-event-loop-test)
+
+  set_tests_properties(
+    tinyredis-resp-test
+    tinyredis-database-test
+    tinyredis-command-test
+    tinyredis-server-test
+    tinyredis-cli-test
+    tinyredis-event-loop-test
+    PROPERTIES TIMEOUT 30
+  )
 endif()

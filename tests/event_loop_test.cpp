@@ -1,3 +1,5 @@
+#include "test_config.h"
+
 #include "event_loop.h"
 
 #include <cassert>

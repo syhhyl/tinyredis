@@ -1,3 +1,5 @@
+#include "test_config.h"
+
 #include "database.h"
 
 #include <cassert>
