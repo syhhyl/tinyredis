@@ -69,7 +69,8 @@ void testAddReadAndWaitReadable() {
   ssize_t sent = write(pair.b, payload.data(), payload.size());
   assert(sent == static_cast<ssize_t>(payload.size()));
 
-  std::vector<Event> events = loop.wait();
+  std::vector<Event> events = loop.wait(1000);
+  assert(!events.empty());
   bool readable = false;
   assert(hasEvent(events, pair.a, &readable));
   assert(readable);
@@ -90,7 +91,8 @@ void testSetWriteToggle() {
   assert(loop.addRead(pair.a));
 
   assert(loop.setWrite(pair.a, true));
-  std::vector<Event> writableEvents = loop.wait();
+  std::vector<Event> writableEvents = loop.wait(1000);
+  assert(!writableEvents.empty());
 
   bool writable = false;
   assert(hasEvent(writableEvents, pair.a, nullptr, &writable));
@@ -119,7 +121,8 @@ void testRemoveStopsReadNotifications() {
   const std::string wakePayload = "W";
   assert(write(wakeup.b, wakePayload.data(), wakePayload.size()) == 1);
 
-  std::vector<Event> events = loop.wait();
+  std::vector<Event> events = loop.wait(1000);
+  assert(!events.empty());
   assert(!hasEvent(events, monitored.a));
 
   bool wakeReadable = false;
