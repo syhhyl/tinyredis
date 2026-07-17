@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cerrno>
 #include <csignal>
+#include <fcntl.h>
 #include <iostream>
 #include <netinet/in.h>
 #include <poll.h>
@@ -62,31 +63,87 @@ int reservePort() {
   return port;
 }
 
-bool writeAll(int fd, const std::string& data) {
-  size_t sent = 0;
-  while (sent < data.size()) {
-    ssize_t n = write(fd, data.data() + sent, data.size() - sent);
-    if (n <= 0) {
+constexpr auto kSocketTimeout = std::chrono::seconds(1);
+
+bool pollUntil(int fd, short events,
+               std::chrono::steady_clock::time_point deadline) {
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
       return false;
     }
-    sent += static_cast<size_t>(n);
+
+    auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    int timeoutMs = static_cast<int>(remaining.count());
+    if (timeoutMs == 0) {
+      timeoutMs = 1;
+    }
+
+    pollfd pfd{fd, events, 0};
+    int rc = poll(&pfd, 1, timeoutMs);
+    if (rc > 0) {
+      if ((pfd.revents & POLLNVAL) != 0) {
+        return false;
+      }
+      return (pfd.revents & (events | POLLERR | POLLHUP)) != 0;
+    }
+    if (rc == 0) {
+      return false;
+    }
+    if (errno != EINTR) {
+      return false;
+    }
   }
+}
+
+bool writeAll(int fd, const std::string& data) {
+  const auto deadline = std::chrono::steady_clock::now() + kSocketTimeout;
+  size_t sent = 0;
+
+  while (sent < data.size()) {
+    if (!pollUntil(fd, POLLOUT, deadline)) {
+      return false;
+    }
+
+    ssize_t n = write(fd, data.data() + sent, data.size() - sent);
+    if (n > 0) {
+      sent += static_cast<size_t>(n);
+      continue;
+    }
+    if (n < 0 &&
+        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+      continue;
+    }
+    return false;
+  }
+
   return true;
 }
 
 std::string readExact(int fd, size_t len) {
-  std::string value;
-  value.resize(len);
-
+  const auto deadline = std::chrono::steady_clock::now() + kSocketTimeout;
+  std::string value(len, '\0');
   size_t readBytes = 0;
+
   while (readBytes < len) {
-    pollfd pfd{fd, POLLIN, 0};
-    int ready = poll(&pfd, 1, 1000);
-    assert(ready == 1);
+    if (!pollUntil(fd, POLLIN, deadline)) {
+      assert(false && "timed out waiting for server response");
+      return {};
+    }
 
     ssize_t n = read(fd, &value[readBytes], len - readBytes);
-    assert(n > 0);
-    readBytes += static_cast<size_t>(n);
+    if (n > 0) {
+      readBytes += static_cast<size_t>(n);
+      continue;
+    }
+    if (n < 0 &&
+        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+      continue;
+    }
+
+    assert(false && "server response ended before expected length");
+    return {};
   }
 
   return value;
@@ -98,34 +155,82 @@ bool hasReadableData(int fd) {
 }
 
 bool readClosed(int fd) {
-  pollfd pfd{fd, POLLIN, 0};
-  int ready = poll(&pfd, 1, 1000);
-  assert(ready == 1);
+  const auto deadline = std::chrono::steady_clock::now() + kSocketTimeout;
 
-  char c = 0;
-  return read(fd, &c, 1) == 0;
+  while (pollUntil(fd, POLLIN, deadline)) {
+    char c = 0;
+    ssize_t n = read(fd, &c, 1);
+    if (n == 0) {
+      return true;
+    }
+    if (n < 0 &&
+        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+      continue;
+    }
+    return false;
+  }
+
+  assert(false && "timed out waiting for server to close connection");
+  return false;
 }
 
 bool readClosedOrReset(int fd) {
-  pollfd pfd{fd, POLLIN, 0};
-  int ready = poll(&pfd, 1, 1000);
-  assert(ready == 1);
+  const auto deadline = std::chrono::steady_clock::now() + kSocketTimeout;
 
-  char c = 0;
-  ssize_t n = read(fd, &c, 1);
-  return n == 0 || (n < 0 && errno == ECONNRESET);
+  while (pollUntil(fd, POLLIN, deadline)) {
+    char c = 0;
+    ssize_t n = read(fd, &c, 1);
+    if (n == 0 || (n < 0 && errno == ECONNRESET)) {
+      return true;
+    }
+    if (n < 0 &&
+        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+      continue;
+    }
+    return false;
+  }
+
+  assert(false && "timed out waiting for server to close or reset connection");
+  return false;
 }
 
 int connectToServer(int port) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   assert(fd >= 0);
 
+  int flags = fcntl(fd, F_GETFL, 0);
+  assert(flags >= 0);
+  assert(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);
+
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
   assert(inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) == 1);
 
-  assert(connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+  const auto deadline = std::chrono::steady_clock::now() + kSocketTimeout;
+  int rc = connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+  if (rc < 0 && errno != EINPROGRESS && errno != EINTR) {
+    close(fd);
+    assert(false && "failed to connect to server");
+    return -1;
+  }
+
+  if (rc < 0 && !pollUntil(fd, POLLOUT, deadline)) {
+    close(fd);
+    assert(false && "timed out connecting to server");
+    return -1;
+  }
+
+  int socketError = 0;
+  socklen_t socketErrorLength = sizeof(socketError);
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError,
+                 &socketErrorLength) < 0 ||
+      socketError != 0) {
+    close(fd);
+    assert(false && "failed to connect to server");
+    return -1;
+  }
+
   return fd;
 }
 
