@@ -3,33 +3,105 @@
 #include "cli.h"
 
 #include <cassert>
+#include <cerrno>
+#include <fcntl.h>
 #include <iostream>
+#include <poll.h>
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
 
 namespace {
 
+constexpr auto kPipeTimeout = std::chrono::seconds(2);
+
+void setNonBlocking(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  assert(flags >= 0);
+  assert(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);
+}
+
+bool pollUntil(int fd, short events,
+               std::chrono::steady_clock::time_point deadline,
+               short* revents) {
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      return false;
+    }
+
+    auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    int timeoutMs = static_cast<int>(remaining.count());
+    if (timeoutMs == 0) {
+      timeoutMs = 1;
+    }
+
+    pollfd pfd{fd, events, 0};
+    int rc = poll(&pfd, 1, timeoutMs);
+    if (rc > 0) {
+      *revents = pfd.revents;
+      return true;
+    }
+    if (rc == 0) {
+      return false;
+    }
+    if (errno != EINTR) {
+      return false;
+    }
+  }
+}
+
 void writeAll(int fd, const std::string& data) {
+  setNonBlocking(fd);
+
+  const auto deadline = std::chrono::steady_clock::now() + kPipeTimeout;
   size_t written = 0;
   while (written < data.size()) {
+    short revents = 0;
+    assert(pollUntil(fd, POLLOUT, deadline, &revents));
+    assert((revents & (POLLERR | POLLHUP | POLLNVAL)) == 0);
+
     ssize_t n = write(fd, data.data() + written, data.size() - written);
-    assert(n > 0);
-    written += static_cast<size_t>(n);
+    if (n > 0) {
+      written += static_cast<size_t>(n);
+      continue;
+    }
+    if (n < 0 &&
+        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+      continue;
+    }
+
+    assert(false && "failed to write pipe data");
   }
 }
 
 std::string readAll(int fd) {
+  setNonBlocking(fd);
+
+  const auto deadline = std::chrono::steady_clock::now() + kPipeTimeout;
   std::string output;
   char buffer[256];
   while (true) {
+    short revents = 0;
+    assert(pollUntil(fd, POLLIN, deadline, &revents));
+    assert((revents & (POLLERR | POLLNVAL)) == 0);
+
     ssize_t n = read(fd, buffer, sizeof(buffer));
-    if (n <= 0) {
-      break;
+    if (n > 0) {
+      output.append(buffer, static_cast<size_t>(n));
+      continue;
     }
-    output.append(buffer, static_cast<size_t>(n));
+    if (n == 0) {
+      return output;
+    }
+    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+      continue;
+    }
+
+    assert(false && "failed to read pipe data");
   }
-  return output;
 }
 
 std::string capturePrintResponse(const std::string& response) {
