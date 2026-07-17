@@ -18,8 +18,11 @@
 #include <utility>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
 
 namespace {
+
+bool serverHarnessFailed = false;
 
 class TempPath {
  public:
@@ -143,13 +146,8 @@ class ServerHarness {
 
   ~ServerHarness() {
     if (pid_ > 0) {
-      int rc = kill(pid_, SIGTERM);
-      assert(rc == 0);
       int status = 0;
-      do {
-        rc = waitpid(pid_, &status, 0);
-      } while (rc < 0 && errno == EINTR);
-      assert(rc == pid_);
+      stopAndReap(&status);
     }
   }
 
@@ -157,19 +155,51 @@ class ServerHarness {
 
   int stopWithSigterm() {
     assert(pid_ > 0);
-    int rc = kill(pid_, SIGTERM);
-    assert(rc == 0);
-
     int status = 0;
-    do {
-      rc = waitpid(pid_, &status, 0);
-    } while (rc < 0 && errno == EINTR);
-    assert(rc == pid_);
-    pid_ = -1;
+    assert(stopAndReap(&status));
     return status;
   }
 
  private:
+  bool stopAndReap(int* status) {
+    kill(pid_, SIGTERM);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (true) {
+      pid_t rc = waitpid(pid_, status, WNOHANG);
+      if (rc == pid_) {
+        break;
+      }
+      if (rc < 0 && errno != EINTR) {
+        std::cerr << "failed to reap server child: errno=" << errno << '\n';
+        serverHarnessFailed = true;
+        return false;
+      }
+      if (std::chrono::steady_clock::now() >= deadline) {
+        std::cerr << "server child did not exit within 2 seconds; sending SIGKILL\n";
+        serverHarnessFailed = true;
+        kill(pid_, SIGKILL);
+        do {
+          rc = waitpid(pid_, status, 0);
+        } while (rc < 0 && errno == EINTR);
+        if (rc == pid_) {
+          pid_ = -1;
+        } else {
+          std::cerr << "failed to reap killed server child: errno=" << errno << '\n';
+        }
+        return false;
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    pid_ = -1;
+    if (!WIFEXITED(*status) || WEXITSTATUS(*status) != 0) {
+      std::cerr << "server child exited abnormally: status=" << *status << '\n';
+      serverHarnessFailed = true;
+    }
+    return true;
+  }
+
   void waitUntilReady() const {
     for (int i = 0; i < 100; ++i) {
       int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -522,6 +552,10 @@ int main() {
   testServerSaveWritesSnapshot();
   testServerSavesSnapshotOnSigterm();
   testServerRejectsConnectionsOverLimit();
+  if (serverHarnessFailed) {
+    std::cerr << "FAIL ServerHarness cleanup\n";
+    return 1;
+  }
   std::cout << "PASS all Server tests\n";
   return 0;
 }
