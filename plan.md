@@ -23,10 +23,10 @@ Dependencies: none
 Dependencies: N1
 Blocked by: 将包含 `.github/workflows/ci.yml` 的分支推送到 GitHub，才能执行 hosted macOS 和 Linux runner（托管运行器）验证。
 
-- [ ] 新增 `.github/workflows/ci.yml`，在 `push` 和 `pull_request` 上启动 `ubuntu-latest` 与 `macos-latest` matrix，并设置 `fail-fast: false` 和 `permissions: contents: read`。
-- [ ] 配置 `.github/workflows/ci.yml` 的每个平台 job 使用 `actions/checkout@v4`，依次运行 `./test.sh` 和 `./build.sh release`，且不安装 Redis、不运行 benchmark、不缓存 build。
-- [ ] 配置 `.github/workflows/ci.yml` 的 job 名称包含 matrix OS，并设置 15 分钟 job timeout，使两个 backend 的状态可独立识别。
-- [ ] Run `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); puts "valid YAML"'`; expect `valid YAML`.
+- [x] 新增 `.github/workflows/ci.yml`，在 `push` 和 `pull_request` 上启动 `ubuntu-latest` 与 `macos-latest` matrix，并设置 `fail-fast: false` 和 `permissions: contents: read`。
+- [x] 配置 `.github/workflows/ci.yml` 的每个平台 job 使用 `actions/checkout@v4`，依次运行 `./test.sh` 和 `./build.sh release`，且不安装 Redis、不运行 benchmark、不缓存 build。
+- [x] 配置 `.github/workflows/ci.yml` 的 job 名称包含 matrix OS，并设置 15 分钟 job timeout，使两个 backend 的状态可独立识别。
+- [x] Run `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); puts "valid YAML"'`; expect `valid YAML`.
 - [ ] Run `run_id=$(gh run list --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId'); gh run watch "$run_id" --exit-status`; expect the latest Ubuntu job to compile `src/event_loop_epoll.cpp` and the latest macOS job to compile `src/event_loop_kqueue.cpp`, with both jobs passing Debug tests and the Release build.
 
 ## N3: Database 拒绝不可表示的 TTL 和 snapshot 时间戳
