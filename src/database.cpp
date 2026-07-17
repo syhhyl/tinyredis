@@ -1,6 +1,7 @@
 #include "database.h"
 
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fcntl.h>
@@ -113,7 +114,11 @@ void Database::set(const std::string& key, const std::string& value) {
   map_store_[key] = Entry{value, std::nullopt};
 }
 
-void Database::set(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
+SetWithTtlResult Database::set(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
+  if (ttl <= std::chrono::milliseconds::zero()) {
+    return SetWithTtlResult::InvalidTtl;
+  }
+  
   auto it = map_store_.find(key);
   if (it != map_store_.end() && it->second.expires_at) {
     expire_index_.erase(ExpireRecord{*it->second.expires_at, key});
@@ -122,6 +127,7 @@ void Database::set(const std::string& key, const std::string& value, std::chrono
   auto expiresAt = std::chrono::system_clock::now() + ttl;
   map_store_[key] = Entry{value, expiresAt};
   expire_index_.insert(ExpireRecord{expiresAt, key});
+  return SetWithTtlResult::Stored;
 }
 
 std::optional<std::string_view> Database::get(const std::string &key) {
@@ -198,14 +204,14 @@ std::optional<long long> Database::decr(const std::string &key) {
   return new_value;
 }
 
-bool Database::expire(const std::string& key, std::chrono::milliseconds ttl) {
+ExpireResult Database::expire(const std::string& key, std::chrono::milliseconds ttl) {
   if (eraseIfExpired(key)) {
-    return false;
+    return ExpireResult::Missing;
   }
 
   auto it = map_store_.find(key);
   if (it == map_store_.end()) {
-    return false;
+    return ExpireResult::Missing;
   }
 
   if (it->second.expires_at) {
@@ -215,7 +221,7 @@ bool Database::expire(const std::string& key, std::chrono::milliseconds ttl) {
   auto expiresAt = std::chrono::system_clock::now() + ttl;
   it->second.expires_at = expiresAt;
   expire_index_.insert(ExpireRecord{expiresAt, key});
-  return true;
+  return ExpireResult::Updated;
 }
 
 long long Database::ttl(const std::string& key) {

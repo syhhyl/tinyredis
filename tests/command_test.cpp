@@ -1,3 +1,4 @@
+#include "database.h"
 #include "test_config.h"
 
 #include "command.h"
@@ -255,7 +256,7 @@ void testExecuteExpire() {
   assert(runCommand({"expire", "name", "0"}, db) == "-ERR invalid expire time\r\n");
   assert(runCommand({"expire", "name", "abc"}, db) == "-ERR invalid expire time\r\n");
 
-  assert(db.expire("name", kShortTtl));
+  assert(db.expire("name", kShortTtl) == ExpireResult::Updated);
   assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
   assert(runCommand({"get", "name"}, db) == "$-1\r\n");
   std::cout << "PASS testExecuteExpire\n";
@@ -272,7 +273,7 @@ void testExecuteTtl() {
   std::string ttl = runCommand({"ttl", "name"}, db);
   assert(ttl == ":0\r\n" || ttl == ":1\r\n");
 
-  assert(db.expire("name", kShortTtl));
+  assert(db.expire("name", kShortTtl) == ExpireResult::Updated);
   assert(waitFor(std::chrono::milliseconds(200), [&] { return !db.exists("name"); }));
   assert(runCommand({"ttl", "name"}, db) == ":-2\r\n");
   std::cout << "PASS testExecuteTtl\n";
@@ -284,7 +285,7 @@ void testExecutePersist() {
   assert(runCommand({"persist", "missing"}, db) == ":0\r\n");
   assert(runCommand({"set", "name", "hyl"}, db) == "+OK\r\n");
   assert(runCommand({"persist", "name"}, db) == ":0\r\n");
-  assert(db.expire("name", kShortTtl));
+  assert(db.expire("name", kShortTtl) == ExpireResult::Updated);
   assert(runCommand({"persist", "name"}, db) == ":1\r\n");
   assert(runCommand({"ttl", "name"}, db) == ":-1\r\n");
 

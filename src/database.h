@@ -7,20 +7,31 @@
 #include <unordered_map>
 
 
+enum class SetWithTtlResult {
+  Stored,
+  InvalidTtl  
+};
+
+enum class ExpireResult {
+  Updated,
+  Missing,
+  InvalidTtl
+};
+
 class Database {
 public:
   Database() = default;
   ~Database() = default;
   
   void set(const std::string &key, const std::string &value);
-  void set(const std::string &key, const std::string &value, std::chrono::milliseconds ttl);
+  SetWithTtlResult set(const std::string &key, const std::string &value, std::chrono::milliseconds ttl);
   std::optional<std::string_view> get(const std::string &key);
   bool exists(const std::string &key);
   bool del(const std::string &key);
   std::optional<long long> incr(const std::string &key);
   std::optional<long long> decr(const std::string &key);
   
-  bool expire(const std::string& key, std::chrono::milliseconds ttl);
+  ExpireResult expire(const std::string& key, std::chrono::milliseconds ttl);
   long long ttl(const std::string& key);
   bool persist(const std::string& key);
   size_t expireDue(size_t maxKeys, std::chrono::microseconds maxDuration);

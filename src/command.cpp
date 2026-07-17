@@ -1,4 +1,5 @@
 #include "command.h"
+#include "database.h"
 #include "resp.h"
 
 #include <charconv>
@@ -210,7 +211,7 @@ void appendExecuteCommand(const std::vector<std::string>& command, Database& db,
       return;
     }
 
-    appendInteger(output, db.expire(command[1], std::chrono::milliseconds(*seconds * 1000)) ? 1 : 0);
+    appendInteger(output, (db.expire(command[1], std::chrono::milliseconds(*seconds * 1000)) == ExpireResult::Updated) ? 1 : 0);
     return;
   }
   if (name == "TTL" && command.size() == 2) {
