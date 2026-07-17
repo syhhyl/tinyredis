@@ -4,3 +4,4 @@ AGENTS.md
 redis-benchmark
 tinyredis-benchmark
 .DS_Store
+/plan.md
