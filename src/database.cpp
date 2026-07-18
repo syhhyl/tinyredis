@@ -158,9 +158,8 @@ void Database::set(const std::string& key, const std::string& value) {
 }
 
 SetWithTtlResult Database::set(const std::string& key, const std::string& value, std::chrono::milliseconds ttl) {
-  if (ttl <= std::chrono::milliseconds::zero()) {
-    return SetWithTtlResult::InvalidTtl;
-  }
+  auto now = std::chrono::system_clock::now();
+  if (!checkedExpiration(now, ttl)) return SetWithTtlResult::InvalidTtl;
   
   auto it = map_store_.find(key);
   if (it != map_store_.end() && it->second.expires_at) {
