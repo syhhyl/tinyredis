@@ -7,7 +7,10 @@
 #include <fcntl.h>
 #include <fstream>
 #include <limits>
+#include <optional>
+#include <ratio>
 #include <string>
+#include <type_traits>
 #include <unistd.h>
 #include <utility>
 #include <charconv>
@@ -102,6 +105,46 @@ std::optional<long long> parseInteger(const std::string &s) {
 
   return value;
 }
+
+
+std::optional<std::chrono::system_clock::time_point> checkedExpiration(
+    std::chrono::system_clock::time_point now,
+    std::chrono::milliseconds ttl) {
+  using Clock = std::chrono::system_clock;
+  using ClockDuration = Clock::duration;
+  using ClockRep = ClockDuration::rep;
+  using Scale = std::ratio_divide<std::chrono::milliseconds::period,
+                                  ClockDuration::period>;
+
+  static_assert(std::is_integral_v<ClockRep> && std::is_signed_v<ClockRep>);
+  static_assert(Scale::den == 1,
+                "system_clock must represent whole milliseconds");
+
+  if (ttl.count() <= 0) {
+    return std::nullopt;
+  }
+
+  const uintmax_t ttl_count = static_cast<uintmax_t>(ttl.count());
+  const uintmax_t ticks_per_millisecond = static_cast<uintmax_t>(Scale::num);
+  const uintmax_t max_ticks =
+      static_cast<uintmax_t>(std::numeric_limits<ClockRep>::max());
+
+  if (ttl_count > max_ticks / ticks_per_millisecond) {
+    return std::nullopt;
+  }
+
+  const ClockRep delta =
+      static_cast<ClockRep>(ttl_count * ticks_per_millisecond);
+  const ClockRep now_count = now.time_since_epoch().count();
+  const ClockRep max_count = std::numeric_limits<ClockRep>::max();
+
+  if (now_count > max_count - delta) {
+    return std::nullopt;
+  }
+
+  return Clock::time_point(ClockDuration(now_count + delta));
+}
+
 
 }  // namespace
 
